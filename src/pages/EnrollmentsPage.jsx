@@ -36,7 +36,7 @@ export const EnrollmentsPage = () => {
 
     return (
         <div className="container-page">
-            <div className="flex flex-col">
+            <div className="flex flex-col mt-[24px]">
                 <h1>Inscripciones</h1>
                 <h2>Gestión de inscripciones de alumnos a materias o exámenes</h2>
             </div>
