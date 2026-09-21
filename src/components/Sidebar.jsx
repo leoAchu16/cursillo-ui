@@ -1,7 +1,7 @@
 
 import imgLogo from '../assets/soloLogo.png'
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 
 export const Sidebar = () => {
 
@@ -22,6 +22,11 @@ export const Sidebar = () => {
         return ('hover:bg-(--btnColor-sidebar-hover) hover:text-(--textColor)')
     }
 
+    function handleNav(option) {
+        setSelected(option.value)
+        navigate(option.path)
+    }
+
     return (
         <aside className="h-screen w-60 flex flex-col bg-(--bgColor-main) border-r-2 border-gray-300">
             <div className="flex flex-inline border-b-2 border-gray-300 my-8 pb-8">
@@ -35,9 +40,9 @@ export const Sidebar = () => {
                 <ul>
                     {opcions.map(option => (
                         <li key={option.value} className={`flex items-center p-3 cursor-pointer
-                        ${isSelected(option.value)}`} onClick={() => setSelected(option.value)} >
+                        ${isSelected(option.value)}`} onClick={() => handleNav(option)} >
                             <i className={`${option.icon} text-2xl text-slate-700 mr-3`}></i>
-                            <Link to={option.path} className="w-full h-full text-sm">{option.label}</Link>
+                            <span className="w-full h-full text-sm">{option.label}</span>
                         </li>
                     ))}
                 </ul>
