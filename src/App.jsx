@@ -6,6 +6,7 @@ import { SubjectsPage } from './pages/SubjectsPage'
 import { LoginPage } from './pages/LoginPage'
 import { EnrollmentsPage } from './pages/EnrollmentsPage'
 import { StudentsPage } from './pages/StudentsPage'
+import { InvoicePage } from './pages/InvoicePage'
 
 function App() {
 
@@ -17,6 +18,7 @@ function App() {
           <Route path='materias' element={<SubjectsPage />} />
           <Route path='inscripciones' element={<EnrollmentsPage />} />
           <Route path='alumnos' element={<StudentsPage />} />
+          <Route path='facturacion' element={<InvoicePage />} />
         </Route>
 
         <Route path='/login' element={<LoginPage />} />
