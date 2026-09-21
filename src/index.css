@@ -1,111 +1,133 @@
+@import "tailwindcss";
+@plugin "@iconify/tailwind4";
+
+
+/*Aca vamos a definir los colores que vamos a usar en toda la app
+
+Como usar: 
+<div class="bg-(--bgColor-main)"></div>
+<p class="text-(--textColor)"></p>
+*/
+
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  /*-------------------------------------COLORES DE BOTONES-------------------------------------*/
+  --btnColor-primary: #008378;
+  --btnColor-primary-hover: #06a89b;
+  /*para botones de accion principales*/
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 
-  @media (max-width: 1024px) {
-    font-size: 16px;
+  --btnColor-secondary: #3F61D1;
+  /*para botones de accion secundarios*/
+
+
+  /*-------------------------------------COLORES DE FONDOS-------------------------------------*/
+  --bgColor-main: #F5FAF8;
+  /*para fondos (es el color principal del frontend)*/
+
+
+  /*-------------------------------------COLORES DE TEXTOS-------------------------------------*/
+  --textColor: #000000;
+  /*para texto*/
+
+
+  --textColor-secondary: #FFFFFF;
+  /*para texto secundario (solo en boton primary o secondary)*/
+
+
+
+  /*-------------------------------------COLORES DE BORDES-------------------------------------*/
+  --borderColor-input: #CAD5D1;
+  /*para bordes de input*/
+
+
+  /*-------------------------------------COLORES DE SIDEBAR-------------------------------------*/
+  --btnColor-sidebar-hover: #0083781a;
+  /*para hover de sidebar*/
+
+}
+
+
+
+
+/*Aca definimos estilos base para etiquetas comunes, pero si no les gusta los estilos base, me avisan*/
+@layer base {
+  h1 {
+    @apply font-bold text-[28px] text-[--textColor];
   }
-}
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
+  h2 {
+    @apply font-bold text-sm text-gray-400;
+
   }
 
-  #social .button-icon {
-    filter: invert(1) brightness(2);
+
+  label {
+    @apply block text-sm font-medium mb-1 text-[--textColor];
   }
-}
 
-body {
-  margin: 0;
-}
-
-#root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
-}
-
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
-}
-
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  input[type="search"] {
+    @apply w-full px-3 py-2 rounded-md border-1 border-(--borderColor-input) bg-(--bgColor-main) text-sm text-(--textColor) outline-none;
   }
-}
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
+
+  /*-------------------------------------ESTILOS PARA TABLAS-------------------------------------*/
+  table {
+    @apply text-sm border-2 border-separate border-spacing-0 rounded-md border-(--borderColor-input) shadow-md overflow-hidden;
   }
-}
-p {
-  margin: 0;
+
+  th {
+    @apply border-b-2 border-(--borderColor-input) p-2;
+  }
+
+  td {
+    @apply p-2;
+  }
+
+  tbody {
+    @apply bg-white text-center;
+  }
+
+  tfoot {
+    @apply bg-white border-t-2 border-(--borderColor-input);
+  }
+
 }
 
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
-}
 
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+/*ACA SE DEFINEN LAS CLASES DE ESTILOS PERSONALIZADAS*/
+@layer components {
+
+  /*-------------------------------------ESTILOS PARA CONTENEDOR DE PAGINAS-------------------------------------*/
+  .container-page {
+    /*Envolver todas las paginas que hagan, con esta clase, para que tengan el mismo formato de espaciado y fondo*/
+    @apply flex flex-col p-5 gap-5 w-full;
+  }
+
+  /*-------------------------------------ESTILOS PARA BUSCADORES-------------------------------------*/
+  .input-search {
+    @apply px-4 py-2.5 rounded-xl border border-(--borderColor-input) bg-white text-(--textColor) outline-none focus:border-(--btnColor-primary) focus:ring-1 focus:ring-(--btnColor-primary) transition-colors shadow-sm;
+  }
+
+
+  /*-------------------------------------ESTILOS PARA BADGES-------------------------------------*/
+  .badge {
+    @apply text-[14px] font-medium px-2 rounded-md border-[1px] border-black/50 min-w-24 text-center;
+  }
+
+  .badge-success {
+    @apply bg-green-300 text-green-800;
+  }
+
+  .badge-warning {
+    @apply bg-yellow-300 text-yellow-800;
+  }
+
+  .badge-danger {
+    @apply bg-red-100 text-red-800;
+  }
+
 }
