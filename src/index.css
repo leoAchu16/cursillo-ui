@@ -116,6 +116,11 @@ Como usar:
     @apply px-4 py-2.5 rounded-xl border border-(--borderColor-input) bg-white text-(--textColor) outline-none focus:border-(--btnColor-primary) focus:ring-1 focus:ring-(--btnColor-primary) transition-colors shadow-sm;
   }
 
+  /*-------------------------------------ESTILOS PARA BOTONES-------------------------------------*/
+  .btn-primary {
+    @apply flex items-center gap-2 px-4 py-2 bg-(--btnColor-primary) text-(--textColor-secondary) text-sm font-medium rounded-xl shadow-md hover:bg-(--btnColor-primary-hover) transition-colors cursor-pointer;
+  }
+
 
   /*-------------------------------------ESTILOS PARA BADGES-------------------------------------*/
   .badge {
