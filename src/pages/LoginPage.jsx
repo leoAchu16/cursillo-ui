@@ -17,7 +17,7 @@ export const LoginPage = () => {
     return (
         <div className="w-full min-h-screen flex items-center justify-center bg-(--bgColor-main) p-4 py-8">
             <div className="flex flex-col h-auto bg-white p-8 rounded-lg shadow-md w-full max-w-md">
-                <div className='flex flex-col gap-5'>
+                <div className='flex flex-col items-center gap-5'>
                     <img className="max-h-24 w-auto object-contain mx-auto" src={imgLogo} alt="CursilloPy Logo"></img>
                     <SegmentedControl
                         value={seccion}
