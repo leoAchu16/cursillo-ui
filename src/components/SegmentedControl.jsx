@@ -9,7 +9,7 @@ import { useState } from 'react'
  */
 export const SegmentedControl = ({ options, value, onChange }) => {
     return (
-        <div className='inline-flex w-fit mx-auto p-1 bg-(--bgColor-main) border border-(--borderColor-input) rounded-lg gap-1'>
+        <div className='inline-flex w-fit p-1 bg-(--bgColor-main) border border-(--borderColor-input) rounded-lg gap-1'>
             {options.map((option) => {
                 const isSelected = value === option.value
                 return (
