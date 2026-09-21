@@ -61,6 +61,10 @@ Como usar:
 
   }
 
+  h3 {
+    @apply font-bold text-lg text-[--textColor];
+  }
+
 
   label {
     @apply block text-sm font-medium mb-1 text-[--textColor];
@@ -130,4 +134,7 @@ Como usar:
     @apply bg-red-100 text-red-800;
   }
 
+  .card {
+    @apply flex flex-col w-full bg-white border-1 border-(--borderColor-input) rounded-xl shadow-md p-5 gap-5;
+  }
 }

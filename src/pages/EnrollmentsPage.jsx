@@ -1,9 +1,12 @@
 
 import { SearchInput } from "../components/SearchInput"
 import { Table } from "../components/Table"
+import { useNavigate } from "react-router-dom"
 
 
 export const EnrollmentsPage = () => {
+
+    const navigate = useNavigate()
 
     //Los encabezados de la tabla
     const headers = ['Alumno', 'Fecha', 'Total', 'Estado', 'Acciones']
@@ -39,7 +42,9 @@ export const EnrollmentsPage = () => {
             </div>
             <div className="flex flex-row justify-between">
                 <SearchInput placeholder="Buscar por alumno"></SearchInput>
-                <button className="flex items-center bg-(--btnColor-primary) text-(--textColor-secondary) rounded-xl p-2 shadow-md hover:bg-(--btnColor-primary-hover) transition-colors cursor-pointer">
+                <button
+                    onClick={() => navigate('/inscripciones/nueva')}
+                    className="flex items-center bg-(--btnColor-primary) text-(--textColor-secondary) rounded-xl p-2 shadow-md hover:bg-(--btnColor-primary-hover) transition-colors cursor-pointer">
                     <i className="icon-[heroicons--plus] text-white mr-2"></i>
                     Nueva inscripción
                 </button>
