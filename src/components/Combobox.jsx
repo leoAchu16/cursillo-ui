@@ -10,7 +10,7 @@ import { useState, useRef, useEffect } from "react"
  * @param {string}   placeholder -> Texto de placeholder
  */
 
-export const Combobox = ({ options = [], value, onChange, placeholder = "Seleccionar..." }) => {
+export const Combobox = ({ options = [], value, onChange, placeholder = "Seleccionar...", className = "w-full" }) => {
 
     const [query, setQuery] = useState("")
     const [open, setOpen] = useState(false)
@@ -47,7 +47,7 @@ export const Combobox = ({ options = [], value, onChange, placeholder = "Selecci
     }, [])
 
     return (
-        <div ref={containerRef} className="relative w-full">
+        <div ref={containerRef} className={`relative ${className}`}>
             {/* Input visible */}
             <div className="relative">
                 <input
