@@ -24,7 +24,7 @@ export const InvoicePage = () => {
 
     return (
         <div className="container-page">
-            <div className="flex flex-col">
+            <div className="flex flex-col mt-[24px]">
                 <h1>Facturas</h1>
                 <h2>Gestión de facturas de alumnos</h2>
             </div>

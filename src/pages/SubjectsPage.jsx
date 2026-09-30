@@ -71,7 +71,7 @@ export const SubjectsPage = () => {
 
     return (
         <div className="container-page">
-            <div className="flex flex-col">
+            <div className="flex flex-col mt-[24px]">
                 <h1>Materias</h1>
                 <h2>Gestión de materias del cursillo</h2>
             </div>
@@ -83,7 +83,7 @@ export const SubjectsPage = () => {
                     className="btn-primary"
                     onClick={() => setIsModalOpen(true)}
                 >
-                    <i className="icon-[heroicons--plus] text-lg"></i>
+                    <i className="icon-[heroicons--plus] text-white mr-2"></i>
                     Nueva materia
                 </button>
             </div>

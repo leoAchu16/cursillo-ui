@@ -32,7 +32,7 @@ export const StudentsPage = () => {
 
     return (
         <div className="container-page">
-            <div className="flex flex-col">
+            <div className="flex flex-col mt-[24px]">
                 <h1>Alumnos</h1>
                 <h2>Gestión de alumnos del cursillo</h2>
             </div>
