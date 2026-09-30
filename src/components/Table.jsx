@@ -22,7 +22,9 @@ export const Table = ({ headers, data, actions }) => {
     //Agreguen aca los estados que necesiten para que se muestren en la tabla como badges
     const statusBadge = {
         PAGADO: { label: 'PAGADO', className: 'badge badge-success' },
-        PENDIENTE: { label: 'PENDIENTE', className: 'badge badge-warning' }
+        PENDIENTE: { label: 'PENDIENTE', className: 'badge badge-warning' },
+        MATERIA: { label: 'MATERIA', className: 'badge badge-info' },
+        EXAMEN: { label: 'EXAMEN', className: 'badge badge-success' }
     }
 
     const renderBadge = (value) => {
