@@ -75,7 +75,7 @@ Como usar:
   input[type="password"],
   input[type="number"],
   input[type="search"] {
-    @apply w-full px-3 py-2 rounded-md border-1 border-(--borderColor-input) bg-(--bgColor-main) text-sm text-(--textColor) outline-none;
+    @apply w-64 px-3 py-2 rounded-md border-1 border-(--borderColor-input) bg-(--bgColor-main) text-sm text-(--textColor) outline-none;
   }
 
   /*-------------------------------------ESTILOS PARA TABLAS-------------------------------------*/
@@ -84,7 +84,7 @@ Como usar:
   }
 
   th {
-    @apply border-b-2 border-(--borderColor-input) p-2;
+    @apply bg-(--bgColor-main) border-b-2 border-(--borderColor-input) p-2;
   }
 
   td {
@@ -108,7 +108,7 @@ Como usar:
   /*-------------------------------------ESTILOS PARA CONTENEDOR DE PAGINAS-------------------------------------*/
   .container-page {
     /*Envolver todas las paginas que hagan, con esta clase, para que tengan el mismo formato de espaciado y fondo*/
-    @apply flex flex-col p-5 gap-5 w-full;
+    @apply flex flex-col p-5 gap-3 w-full;
   }
 
   /*-------------------------------------ESTILOS PARA BUSCADORES-------------------------------------*/
@@ -139,7 +139,11 @@ Como usar:
     @apply bg-red-100 text-red-800;
   }
 
+  .badge-info {
+    @apply bg-blue-100 text-blue-800;
+  }
+
   .card {
-    @apply flex flex-col w-full bg-white border-1 border-(--borderColor-input) rounded-xl shadow-md p-5 gap-5;
+    @apply flex flex-col w-full h-fit bg-white border-1 border-(--borderColor-input) rounded-xl shadow-md p-5 gap-5;
   }
 }
