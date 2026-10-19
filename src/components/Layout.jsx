@@ -4,7 +4,8 @@ import { Outlet } from "react-router"
 export const Layout = () => {
     return (
         <div className="flex flex-row h-screen">
-            <Sidebar />
+            {/* Puedes cambiar a role="secretaria" cuando quieras ver el otro menú */}
+            <Sidebar role="profesor" />
             <main className="flex-1 bg-(--bgColor-main)">
                 <Outlet />
             </main>
