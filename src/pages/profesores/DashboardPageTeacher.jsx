@@ -55,11 +55,10 @@ export const DashboardPageTeacher = () => {
                 <div className="flex items-center gap-3">
                     <button
                         onClick={() => setIsTokenModalOpen(true)}
-                        className={`flex items-center text-xs font-semibold px-3 py-2 rounded-xl border transition-colors cursor-pointer ${
-                            hasToken
+                        className={`flex items-center text-xs font-semibold px-3 py-2 rounded-xl border transition-colors cursor-pointer ${hasToken
                                 ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
                                 : 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100'
-                        }`}
+                            }`}
                         title="Configurar Token JWT"
                     >
                         <i className="icon-[heroicons--key] mr-1.5 text-base"></i>
