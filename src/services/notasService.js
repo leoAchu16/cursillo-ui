@@ -87,18 +87,27 @@ export const actualizarNota = async (id, datos) => {
   return response.data;
 };
 
-/**
- * ==========================================
- * SERVICIOS DE INSCRIPCIONES / ALUMNOS
- * ==========================================
- */
+/** ==========================================
+ *  SERVICIOS DE INSCRIPCIONES (Workaround Frontend)
+ *  ========================================== */
 
 export const listarInscripcionesPorMateria = async (idMateria) => {
   try {
-    const response = await api.get(`/inscripciones/materia/${idMateria}`);
-    return response.data;
+    const response = await api.get(`/inscripciones`);
+    const todasLasInscripciones = response.data.content || response.data || [];
+
+    // Filtramos buscando si AL MENOS UN detalle tiene el idMateria que buscamos
+    const filtradas = todasLasInscripciones.filter(inscripcion => {
+      // Verificamos que tenga detalles y buscamos dentro del array
+      if (!inscripcion.detallesInscripcion) return false;
+      return inscripcion.detallesInscripcion.some(
+        detalle => detalle.idMateria === Number(idMateria)
+      );
+    });
+
+    return filtradas;
   } catch (error) {
-    console.warn(`No se pudo obtener inscripciones para materia ${idMateria}:`, error?.message);
-    throw error;
+    console.warn(`Error al filtrar inscripciones por materia:`, error?.message);
+    return [];
   }
 };

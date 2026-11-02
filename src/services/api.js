@@ -47,16 +47,31 @@ export const setStoredToken = (token) => {
   }
 };
 
-// Helper para obtener el usuario autenticado
+// Helper para obtener el usuario autenticado directamente desde el JWT
 export const getLoggedUser = () => {
   try {
-    const userStr = localStorage.getItem('user');
-    if (userStr) {
-      return JSON.parse(userStr);
+    const token = localStorage.getItem('token');
+    if (token) {
+      // El JWT tiene 3 partes separadas por punto: header.payload.signature
+      const payloadBase64 = token.split('.')[1];
+
+      // Decodificamos la parte del payload
+      const decodedJson = atob(payloadBase64);
+      const payloadData = JSON.parse(decodedJson);
+
+      // Mapeamos los datos del JWT a nuestro objeto de usuario
+      return {
+        id: parseInt(payloadData.sub),
+        idProfesor: parseInt(payloadData.sub),
+        nombre: 'Profesor Autenticado',
+        rol: payloadData.roles ? payloadData.roles[0] : 'PROFESOR'
+      };
     }
   } catch (e) {
-    console.error('Error parseando usuario de localStorage:', e);
+    console.error('Error extrayendo usuario del token JWT:', e);
   }
+
+  // Fallback de seguridad en caso de que no haya token o sea inválido
   return { id: 1, idProfesor: 1, nombre: 'Profesor Titular', rol: 'profesor' };
 };
 

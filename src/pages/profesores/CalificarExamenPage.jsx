@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { SearchInput } from '../../components/SearchInput';
 import { Combobox } from '../../components/Combobox';
+import api from '../../services/api';
 import {
     buscarNotasPorExamen,
-    guardarNotas,
     listarExamenesPorMateria,
     obtenerMateria,
     listarInscripcionesPorMateria
@@ -45,7 +45,6 @@ export const CalificarExamenPage = () => {
                     const listaEx = Array.isArray(exData) ? exData : exData?.content || exData?.data || [];
                     setExamenes(listaEx);
 
-                    // Si no había examen seleccionado o el seleccionado no existe, seleccionar el primero
                     if (listaEx.length > 0) {
                         const idInicial = examenIdFromUrl || String(listaEx[0].id || listaEx[0].idExamen);
                         setExamenSeleccionadoId(String(idInicial));
@@ -60,7 +59,6 @@ export const CalificarExamenPage = () => {
         cargarMateriaYExamenes();
     }, [materiaId]);
 
-    // Sincronizar el examen seleccionado con la URL
     const handleSeleccionarExamen = (nuevoIdExamen) => {
         setExamenSeleccionadoId(nuevoIdExamen);
         setSearchParams({ idExamen: nuevoIdExamen });
@@ -78,7 +76,6 @@ export const CalificarExamenPage = () => {
             setError(null);
             setMensajeExito(null);
             try {
-                // Obtener datos del examen actual para el puntaje total
                 const examenActual = examenes.find(
                     (ex) => String(ex.id || ex.idExamen) === String(examenSeleccionadoId)
                 );
@@ -86,21 +83,19 @@ export const CalificarExamenPage = () => {
                     setTotalPuntos(Number(examenActual.puntajeTotal || examenActual.totalPuntos));
                 }
 
-                // Buscar notas existentes
                 const notasData = await buscarNotasPorExamen(examenSeleccionadoId);
                 const notasList = Array.isArray(notasData) ? notasData : notasData?.content || notasData?.data || [];
 
                 if (notasList.length > 0) {
-                    // Mapear notas existentes
                     const mapped = notasList.map((nota, idx) => {
                         const nombre = nota.nombreAlumno || (nota.alumno ? `${nota.alumno.nombre} ${nota.alumno.apellido || ''}`.trim() : null) || `Alumno #${idx + 1}`;
                         const matId = nota.matricula || nota.alumno?.matricula || (nota.idAlumno ? `ALU-${nota.idAlumno}` : `MAT-${idx + 1}`);
-                        const puntos = nota.puntosObtenidos ?? nota.puntos ?? 0;
-                        const ausente = Boolean(nota.ausente);
+                        const puntos = nota.puntosCorrectos ?? nota.puntos ?? 0;
+                        const ausente = nota.estadoNota === 'AUSENTE' || Boolean(nota.ausente);
 
                         return {
                             id: nota.idAlumno || nota.id || idx + 1,
-                            notaId: nota.id || null,
+                            notaId: nota.idNota || nota.id || null,
                             idAlumno: nota.idAlumno || (nota.alumno ? nota.alumno.id : null) || idx + 1,
                             nombre,
                             matId,
@@ -110,7 +105,6 @@ export const CalificarExamenPage = () => {
                     });
                     setAlumnos(mapped);
                 } else {
-                    // Si aún no existen notas para este examen, intentamos traer los alumnos inscritos
                     try {
                         const inscritosData = await listarInscripcionesPorMateria(materiaId);
                         const inscritosList = Array.isArray(inscritosData) ? inscritosData : inscritosData?.content || inscritosData?.data || [];
@@ -149,7 +143,6 @@ export const CalificarExamenPage = () => {
         cargarNotas();
     }, [examenSeleccionadoId, examenes, materiaId]);
 
-    // Cálculo de calificación según escala académica
     const calcularNota = (puntos, ausente) => {
         if (ausente) {
             return {
@@ -213,6 +206,7 @@ export const CalificarExamenPage = () => {
         );
     };
 
+    // Guardar usando POST /notas de manera individual por alumno
     const handleGuardar = async () => {
         if (!examenSeleccionadoId) {
             alert('Por favor selecciona un examen para calificar.');
@@ -224,33 +218,42 @@ export const CalificarExamenPage = () => {
         setMensajeExito(null);
 
         try {
-            // Construir payload para PUT /api/notas/batch
-            const payload = alumnos.map((alumno) => {
-                const { calificacionNumero } = calcularNota(alumno.puntos, alumno.ausente);
-                const item = {
+            const promesas = alumnos.map(async (alumno) => {
+                const { porcentaje, calificacionNumero } = calcularNota(alumno.puntos, alumno.ausente);
+
+                let estado = "APROBADO";
+                if (alumno.ausente) {
+                    estado = "AUSENTE";
+                } else if (porcentaje < 60) {
+                    estado = "REPROBADO";
+                }
+
+                const dto = {
                     idExamen: Number(examenSeleccionadoId),
-                    idAlumno: alumno.idAlumno || alumno.id,
-                    puntosObtenidos: alumno.ausente ? 0 : Number(alumno.puntos),
-                    puntos: alumno.ausente ? 0 : Number(alumno.puntos),
-                    totalPuntos: Number(totalPuntos),
-                    calificacion: calificacionNumero,
-                    ausente: Boolean(alumno.ausente)
+                    idAlumno: Number(alumno.idAlumno || alumno.id),
+                    puntosCorrectos: alumno.ausente ? 0 : Number(alumno.puntos),
+                    calificacion: Number(calificacionNumero),
+                    estadoNota: estado
                 };
 
                 if (alumno.notaId) {
-                    item.id = alumno.notaId;
+                    dto.idNota = Number(alumno.notaId);
+                    return api.put(`/notas/${alumno.notaId}`, dto);
+                } else {
+                    return api.post('/notas', dto);
                 }
-                return item;
             });
 
-            await guardarNotas(payload);
+            await Promise.all(promesas);
+
             setMensajeExito('¡Calificaciones guardadas exitosamente en el servidor!');
             setTimeout(() => {
                 navigate(`/materias/examenes/${materiaId}/resultados/${examenSeleccionadoId}`);
             }, 1200);
         } catch (err) {
-            console.error('Error al guardar notas:', err);
-            setError(err.response?.data?.message || err.message || 'Error al guardar calificaciones.');
+            console.error('Error detallado al guardar notas:', err.response?.data || err);
+            const backendMsg = err.response?.data?.mensaje || err.response?.data?.message || JSON.stringify(err.response?.data) || err.message;
+            setError(`Error al guardar: ${backendMsg}`);
         } finally {
             setGuardando(false);
         }
@@ -258,12 +261,12 @@ export const CalificarExamenPage = () => {
 
     const alumnosFiltrados = alumnos.filter(
         (a) =>
-            a.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
-            a.matId.toLowerCase().includes(busqueda.toLowerCase())
+            (a.nombre && a.nombre.toLowerCase().includes(busqueda.toLowerCase())) ||
+            (a.matId && String(a.matId).toLowerCase().includes(busqueda.toLowerCase()))
     );
 
     const opcionesExamenes = examenes.map((ex) => ({
-        label: ex.nombre || ex.nombreExamen || `Examen #${ex.id || ex.idExamen}`,
+        label: ex.nombre || ex.titulo || ex.descripcion || ex.nombreExamen || `Examen #${ex.id || ex.idExamen}`,
         value: String(ex.id || ex.idExamen)
     }));
 
@@ -271,7 +274,6 @@ export const CalificarExamenPage = () => {
 
     return (
         <div className="container-page">
-            {/* Botón Volver */}
             <button
                 onClick={() => navigate(`/materias/examenes/${materiaId}`)}
                 className="flex items-center text-sm font-bold text-(--btnColor-primary) hover:underline mb-1 cursor-pointer w-fit"
@@ -279,7 +281,6 @@ export const CalificarExamenPage = () => {
                 <i className="icon-[heroicons--arrow-left] mr-1"></i> Volver a Exámenes
             </button>
 
-            {/* Cabecera */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
                 <div>
                     <span className="text-xs text-gray-400 font-medium uppercase tracking-wider">Calificación de Evaluaciones</span>
@@ -289,7 +290,6 @@ export const CalificarExamenPage = () => {
                 </div>
             </div>
 
-            {/* Alertas de Éxito o Error */}
             {mensajeExito && (
                 <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 flex items-center gap-3">
                     <i className="icon-[heroicons--check-circle] text-2xl text-emerald-600"></i>
@@ -302,15 +302,13 @@ export const CalificarExamenPage = () => {
                     <i className="icon-[heroicons--exclamation-triangle] text-2xl text-red-600"></i>
                     <div>
                         <p className="text-sm font-bold">Ocurrió un error</p>
-                        <p className="text-xs text-red-600">{error}</p>
+                        <p className="text-xs text-red-600 break-all">{error}</p>
                     </div>
                 </div>
             )}
 
-            {/* Tarjeta Informativa del Examen */}
             <div className="card !p-5">
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 divide-y sm:divide-y-0 sm:divide-x divide-gray-200">
-                    {/* Selector de Examen */}
                     <div className="flex items-center gap-3">
                         <div className="p-3 bg-teal-50 text-(--btnColor-primary) rounded-xl shrink-0">
                             <i className="icon-[heroicons--clipboard-document-check] text-2xl"></i>
@@ -331,7 +329,6 @@ export const CalificarExamenPage = () => {
                         </div>
                     </div>
 
-                    {/* Total Puntos */}
                     <div className="flex items-center gap-3 sm:pl-6 pt-4 sm:pt-0">
                         <div className="p-3 bg-teal-50 text-(--btnColor-primary) rounded-xl shrink-0">
                             <i className="icon-[heroicons--star] text-2xl"></i>
@@ -351,7 +348,6 @@ export const CalificarExamenPage = () => {
                         </div>
                     </div>
 
-                    {/* Estado */}
                     <div className="flex items-center gap-3 sm:pl-6 pt-4 sm:pt-0">
                         <div className="p-3 bg-teal-50 text-(--btnColor-primary) rounded-xl shrink-0">
                             <i className="icon-[heroicons--users] text-2xl"></i>
@@ -364,7 +360,6 @@ export const CalificarExamenPage = () => {
                 </div>
             </div>
 
-            {/* Tarjeta de Carga de Calificaciones */}
             <div className="card">
                 <div className="flex flex-col md:flex-row justify-between items-center pb-4 border-b border-gray-200 gap-4">
                     <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
@@ -391,7 +386,6 @@ export const CalificarExamenPage = () => {
                         <p className="text-xs text-gray-400 mt-1">Asegúrate de que existan alumnos inscritos en esta materia.</p>
                     </div>
                 ) : (
-                    /* Tabla de Calificación */
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm border-separate border-spacing-0">
                             <thead>
@@ -415,7 +409,6 @@ export const CalificarExamenPage = () => {
                                             key={alumno.id}
                                             className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
                                         >
-                                            {/* Alumno */}
                                             <td className="py-3 px-4 text-left">
                                                 <div className="flex items-center gap-3">
                                                     <div className="w-9 h-9 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-xs uppercase shrink-0">
@@ -432,7 +425,6 @@ export const CalificarExamenPage = () => {
                                                 </div>
                                             </td>
 
-                                            {/* Input Puntos */}
                                             <td className="py-3 px-4 text-center">
                                                 <input
                                                     type="number"
@@ -445,32 +437,27 @@ export const CalificarExamenPage = () => {
                                                 />
                                             </td>
 
-                                            {/* Total */}
                                             <td className="py-3 px-4 text-center text-gray-400 font-medium">
                                                 / {totalPuntos}
                                             </td>
 
-                                            {/* Porcentaje */}
                                             <td className="py-3 px-4 text-center font-bold">
                                                 <span
-                                                    className={`px-2 py-1 rounded-md text-xs font-bold ${
-                                                        alumno.ausente
+                                                    className={`px-2 py-1 rounded-md text-xs font-bold ${alumno.ausente
                                                             ? 'text-red-500 bg-red-50'
                                                             : porcentaje >= 60
-                                                            ? 'text-emerald-600 bg-emerald-50'
-                                                            : 'text-red-600 bg-red-50'
-                                                    }`}
+                                                                ? 'text-emerald-600 bg-emerald-50'
+                                                                : 'text-red-600 bg-red-50'
+                                                        }`}
                                                 >
                                                     {alumno.ausente ? '0%' : `${porcentaje}%`}
                                                 </span>
                                             </td>
 
-                                            {/* Calificación Automática */}
                                             <td className="py-3 px-4 text-center font-semibold text-slate-700">
                                                 {calificacion}
                                             </td>
 
-                                            {/* Estado con botón toggle ausente */}
                                             <td className="py-3 px-4 text-center">
                                                 <button
                                                     type="button"
@@ -489,7 +476,6 @@ export const CalificarExamenPage = () => {
                     </div>
                 )}
 
-                {/* Acciones del Formulario */}
                 <div className="flex justify-end items-center gap-3 pt-4 border-t border-gray-200">
                     <button
                         type="button"
