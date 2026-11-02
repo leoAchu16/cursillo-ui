@@ -7,7 +7,8 @@ import {
     buscarNotasPorExamen,
     listarExamenesPorMateria,
     obtenerMateria,
-    listarInscripcionesPorMateria
+    listarInscripcionesPorMateria,
+    listarAlumnos
 } from '../../services/notasService';
 
 export const CalificarExamenPage = () => {
@@ -16,7 +17,6 @@ export const CalificarExamenPage = () => {
     const [searchParams, setSearchParams] = useSearchParams();
     const examenIdFromUrl = searchParams.get('idExamen');
 
-    // Estados de UI y datos
     const [busqueda, setBusqueda] = useState('');
     const [totalPuntos, setTotalPuntos] = useState(20);
     const [materia, setMateria] = useState(null);
@@ -64,14 +64,14 @@ export const CalificarExamenPage = () => {
         setSearchParams({ idExamen: nuevoIdExamen });
     };
 
-    // Cargar notas cuando cambia el examen seleccionado
+    // Cargar notas y cruzar con la lista global de alumnos cuando cambia el examen seleccionado
     useEffect(() => {
         if (!examenSeleccionadoId) {
             setLoading(false);
             return;
         }
 
-        const cargarNotas = async () => {
+        const cargarNotasYAlumnos = async () => {
             setLoading(true);
             setError(null);
             setMensajeExito(null);
@@ -83,20 +83,41 @@ export const CalificarExamenPage = () => {
                     setTotalPuntos(Number(examenActual.puntajeTotal || examenActual.totalPuntos));
                 }
 
-                const notasData = await buscarNotasPorExamen(examenSeleccionadoId);
+                // Peticiones en paralelo: Notas, Inscritos y Alumnos globales
+                const [notasData, inscritosData, alumnosData] = await Promise.all([
+                    buscarNotasPorExamen(examenSeleccionadoId).catch(() => []),
+                    listarInscripcionesPorMateria(materiaId).catch(() => []),
+                    listarAlumnos().catch(() => [])
+                ]);
+
+                // Crear mapa de alumnos globales
+                const alumnosMap = {};
+                const listaAlumnosGlobal = Array.isArray(alumnosData) ? alumnosData : alumnosData?.content || [];
+                listaAlumnosGlobal.forEach(alu => {
+                    const id = alu.id || alu.idUsuario || alu.idAlumno;
+                    if (id) {
+                        alumnosMap[id] = {
+                            nombre: `${alu.nombre || ''} ${alu.apellido || ''}`.trim(),
+                            matricula: alu.matricula || id
+                        };
+                    }
+                });
+
                 const notasList = Array.isArray(notasData) ? notasData : notasData?.content || notasData?.data || [];
 
                 if (notasList.length > 0) {
                     const mapped = notasList.map((nota, idx) => {
-                        const nombre = nota.nombreAlumno || (nota.alumno ? `${nota.alumno.nombre} ${nota.alumno.apellido || ''}`.trim() : null) || `Alumno #${idx + 1}`;
-                        const matId = nota.matricula || nota.alumno?.matricula || (nota.idAlumno ? `ALU-${nota.idAlumno}` : `MAT-${idx + 1}`);
+                        const idAlu = nota.idAlumno || nota.alumno?.id;
+                        const infoAlu = alumnosMap[idAlu] || {};
+                        const nombre = infoAlu.nombre || nota.nombreAlumno || (nota.alumno ? `${nota.alumno.nombre} ${nota.alumno.apellido || ''}`.trim() : null) || `Alumno #${idAlu || idx + 1}`;
+                        const matId = infoAlu.matricula || nota.matricula || nota.alumno?.matricula || (idAlu ? `ALU-${idAlu}` : `MAT-${idx + 1}`);
                         const puntos = nota.puntosCorrectos ?? nota.puntos ?? 0;
                         const ausente = nota.estadoNota === 'AUSENTE' || Boolean(nota.ausente);
 
                         return {
-                            id: nota.idAlumno || nota.id || idx + 1,
+                            id: idAlu || nota.id || idx + 1,
                             notaId: nota.idNota || nota.id || null,
-                            idAlumno: nota.idAlumno || (nota.alumno ? nota.alumno.id : null) || idx + 1,
+                            idAlumno: idAlu || idx + 1,
                             nombre,
                             matId,
                             puntos,
@@ -105,30 +126,26 @@ export const CalificarExamenPage = () => {
                     });
                     setAlumnos(mapped);
                 } else {
-                    try {
-                        const inscritosData = await listarInscripcionesPorMateria(materiaId);
-                        const inscritosList = Array.isArray(inscritosData) ? inscritosData : inscritosData?.content || inscritosData?.data || [];
+                    const inscritosList = Array.isArray(inscritosData) ? inscritosData : inscritosData?.content || inscritosData?.data || [];
 
-                        if (inscritosList.length > 0) {
-                            const initialized = inscritosList.map((ins, idx) => {
-                                const nombre = ins.alumno?.nombre ? `${ins.alumno.nombre} ${ins.alumno.apellido || ''}`.trim() : ins.nombreAlumno || `Alumno #${idx + 1}`;
-                                const matId = ins.alumno?.matricula || ins.alumno?.id || ins.idAlumno || `MAT-${idx + 1}`;
-                                return {
-                                    id: ins.alumno?.id || ins.idAlumno || idx + 1,
-                                    notaId: null,
-                                    idAlumno: ins.alumno?.id || ins.idAlumno || idx + 1,
-                                    nombre,
-                                    matId,
-                                    puntos: 0,
-                                    ausente: false,
-                                };
-                            });
-                            setAlumnos(initialized);
-                        } else {
-                            setAlumnos([]);
-                        }
-                    } catch (insErr) {
-                        console.warn('No se pudieron obtener inscripciones:', insErr);
+                    if (inscritosList.length > 0) {
+                        const initialized = inscritosList.map((ins, idx) => {
+                            const idAlu = ins.idAlumno || ins.alumno?.id;
+                            const infoAlu = alumnosMap[idAlu] || {};
+                            const nombre = infoAlu.nombre || (ins.alumno?.nombre ? `${ins.alumno.nombre} ${ins.alumno.apellido || ''}`.trim() : null) || ins.nombreAlumno || `Alumno #${idAlu || idx + 1}`;
+                            const matId = infoAlu.matricula || ins.alumno?.matricula || ins.alumno?.id || idAlu || `MAT-${idx + 1}`;
+                            return {
+                                id: idAlu || idx + 1,
+                                notaId: null,
+                                idAlumno: idAlu || idx + 1,
+                                nombre,
+                                matId,
+                                puntos: 0,
+                                ausente: false,
+                            };
+                        });
+                        setAlumnos(initialized);
+                    } else {
                         setAlumnos([]);
                     }
                 }
@@ -140,7 +157,7 @@ export const CalificarExamenPage = () => {
             }
         };
 
-        cargarNotas();
+        cargarNotasYAlumnos();
     }, [examenSeleccionadoId, examenes, materiaId]);
 
     const calcularNota = (puntos, ausente) => {
@@ -206,7 +223,6 @@ export const CalificarExamenPage = () => {
         );
     };
 
-    // Guardar usando POST /notas de manera individual por alumno
     const handleGuardar = async () => {
         if (!examenSeleccionadoId) {
             alert('Por favor selecciona un examen para calificar.');

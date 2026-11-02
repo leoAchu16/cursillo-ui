@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { SearchInput } from "../../components/SearchInput";
 import { Combobox } from "../../components/Combobox";
 import { Table } from "../../components/Table";
-import { listarInscripcionesPorMateria, obtenerMateria } from '../../services/notasService';
+import { listarInscripcionesPorMateria, obtenerMateria, listarAlumnos } from '../../services/notasService';
 
 export const DetalleMateriaPage = () => {
     const { materiaId } = useParams();
@@ -21,20 +21,48 @@ export const DetalleMateriaPage = () => {
         setLoading(true);
         setError(null);
         try {
-            // Cargar datos de la materia
-            try {
-                const materiaData = await obtenerMateria(materiaId);
-                setMateria(materiaData);
-            } catch (err) {
-                console.warn('No se pudo obtener información detallada de la materia:', err);
-            }
+            // Hacemos las peticiones en paralelo: Materia, Inscripciones y la lista global de Alumnos
+            const [materiaData, inscripcionesData, alumnosData] = await Promise.all([
+                obtenerMateria(materiaId).catch(() => null),
+                listarInscripcionesPorMateria(materiaId).catch(() => []),
+                listarAlumnos().catch(() => [])
+            ]);
 
-            // Cargar inscripciones / alumnos
-            const inscripcionesData = await listarInscripcionesPorMateria(materiaId);
-            const lista = Array.isArray(inscripcionesData)
+            setMateria(materiaData);
+
+            // Creamos un diccionario (mapa) de ID -> Datos del alumno
+            const alumnosMap = {};
+            const listaAlumnosGlobal = Array.isArray(alumnosData) ? alumnosData : alumnosData?.content || [];
+            listaAlumnosGlobal.forEach(alu => {
+                const id = alu.id || alu.idUsuario || alu.idAlumno;
+                if (id) {
+                    alumnosMap[id] = {
+                        nombre: `${alu.nombre || ''} ${alu.apellido || ''}`.trim(),
+                        email: alu.email || alu.correo || 'correo@ejemplo.com',
+                        matricula: alu.matricula || id
+                    };
+                }
+            });
+
+            // Extraemos la lista de inscripciones de la materia
+            const listaInscripciones = Array.isArray(inscripcionesData)
                 ? inscripcionesData
                 : inscripcionesData?.content || inscripcionesData?.data || [];
-            setAlumnos(lista);
+
+            // Enriquecemos cada inscripción cruzando el ID del alumno con nuestro mapa global
+            const alumnosEnriquecidos = listaInscripciones.map(item => {
+                const idAlu = item.idAlumno || item.alumnoId || item.alumno?.id;
+                const infoAlumno = alumnosMap[idAlu] || {};
+
+                return {
+                    ...item,
+                    nombreResuelto: infoAlumno.nombre || item.nombreAlumno || (item.alumno?.nombre ? `${item.alumno.nombre} ${item.alumno.apellido || ''}`.trim() : null) || `Alumno #${idAlu || 'N/D'}`,
+                    emailResuelto: infoAlumno.email || item.emailAlumno || item.email || 'correo@ejemplo.com',
+                    idMatriculaResuelto: infoAlumno.matricula || idAlu || 'N/A'
+                };
+            });
+
+            setAlumnos(alumnosEnriquecidos);
         } catch (err) {
             console.error('Error al cargar datos de DetalleMateria:', err);
             setError(err.response?.data?.message || err.message || 'Error al conectar con el servidor.');
@@ -53,8 +81,8 @@ export const DetalleMateriaPage = () => {
 
     // Filtrar alumnos según texto y estado
     const alumnosFiltrados = alumnos.filter((item) => {
-        const nombre = (item.alumno?.nombre ? `${item.alumno.nombre} ${item.alumno.apellido || ''}` : item.nombreAlumno || item.alumno || item.nombre || '').toLowerCase();
-        const email = (item.alumno?.email || item.emailAlumno || item.email || '').toLowerCase();
+        const nombre = (item.nombreResuelto || '').toLowerCase();
+        const email = (item.emailResuelto || '').toLowerCase();
         const search = busqueda.toLowerCase();
         const matchText = nombre.includes(search) || email.includes(search);
 
@@ -69,9 +97,9 @@ export const DetalleMateriaPage = () => {
     });
 
     const tablaData = alumnosFiltrados.map((item, index) => {
-        const nombre = item.alumno?.nombre ? `${item.alumno.nombre} ${item.alumno.apellido || ''}`.trim() : item.nombreAlumno || item.alumno || item.nombre || `Alumno #${index + 1}`;
-        const email = item.alumno?.email || item.emailAlumno || item.email || 'correo@ejemplo.com';
-        const matricula = item.alumno?.matricula || item.alumno?.id || item.idAlumno || item.matricula || `MAT-${item.id || index + 1}`;
+        const nombre = item.nombreResuelto;
+        const email = item.emailResuelto;
+        const matricula = item.idMatriculaResuelto;
         const fecha = item.fechaInscripcion || item.fecha || 'Reciente';
         const estado = item.estado || 'Activo';
         const isActivo = estado.toLowerCase().includes('activ') || estado.toLowerCase().includes('paga');

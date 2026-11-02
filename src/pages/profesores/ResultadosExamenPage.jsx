@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { SearchInput } from '../../components/SearchInput';
-import { buscarNotasPorExamen, obtenerExamen } from '../../services/notasService';
+import { buscarNotasPorExamen, obtenerExamen, listarAlumnos } from '../../services/notasService';
 
 export const ResultadosExamenPage = () => {
     const navigate = useNavigate();
@@ -16,18 +16,48 @@ export const ResultadosExamenPage = () => {
         setLoading(true);
         setError(null);
         try {
-            // Cargar info del examen
-            try {
-                const exData = await obtenerExamen(examenId);
-                setExamen(exData);
-            } catch (e) {
-                console.warn('No se pudo obtener información del examen:', e);
-            }
+            const [exData, notasData, alumnosData] = await Promise.all([
+                obtenerExamen(examenId).catch(() => null),
+                buscarNotasPorExamen(examenId).catch(() => []),
+                listarAlumnos().catch(() => [])
+            ]);
 
-            // Cargar notas
-            const data = await buscarNotasPorExamen(examenId);
-            const notasList = Array.isArray(data) ? data : data?.content || data?.data || [];
-            setAlumnos(notasList);
+            setExamen(exData);
+
+            // Crear mapa de alumnos globales
+            const alumnosMap = {};
+            const listaAlumnosGlobal = Array.isArray(alumnosData) ? alumnosData : alumnosData?.content || [];
+            listaAlumnosGlobal.forEach(alu => {
+                const id = alu.id || alu.idUsuario || alu.idAlumno;
+                if (id) {
+                    alumnosMap[id] = {
+                        nombre: `${alu.nombre || ''} ${alu.apellido || ''}`.trim(),
+                        email: alu.email || alu.correo || 'Sin correo registrado',
+                        matricula: alu.matricula || id
+                    };
+                }
+            });
+
+            const notasList = Array.isArray(notasData) ? notasData : notasData?.content || notasData?.data || [];
+
+            // Enriquecer notas y capturar correctamente los puntos
+            const notasEnriquecidas = notasList.map((item, idx) => {
+                const idAlu = item.idAlumno || item.alumno?.id;
+                const infoAlumno = alumnosMap[idAlu] || {};
+
+                // Capturamos con prioridad todas las variantes posibles del campo de puntos del backend
+                const puntosCapturados = item.puntosCorrectos ?? item.puntosObtenidos ?? item.puntos ?? 0;
+
+                return {
+                    ...item,
+                    puntosReales: puntosCapturados,
+                    nombreResuelto: infoAlumno.nombre || item.nombreAlumno || (item.alumno?.nombre ? `${item.alumno.nombre} ${item.alumno.apellido || ''}`.trim() : null) || `Alumno #${idAlu || idx + 1}`,
+                    emailResuelto: infoAlumno.email || item.emailAlumno || item.alumno?.email || 'Sin correo registrado',
+                    matResuelta: infoAlumno.matricula || item.matricula || item.alumno?.matricula || `MAT-${idAlu || idx + 1}`
+                };
+            });
+
+            setAlumnos(notasEnriquecidas);
         } catch (err) {
             console.error('Error al cargar resultados de notas:', err);
             setError(err.response?.data?.message || err.message || 'Error al conectar con el servidor.');
@@ -51,8 +81,8 @@ export const ResultadosExamenPage = () => {
     };
 
     const alumnosFiltrados = alumnos.filter((item) => {
-        const nombre = (item.nombreAlumno || (item.alumno ? `${item.alumno.nombre} ${item.alumno.apellido || ''}` : '') || '').toLowerCase();
-        const email = (item.emailAlumno || item.alumno?.email || '').toLowerCase();
+        const nombre = (item.nombreResuelto || '').toLowerCase();
+        const email = (item.emailResuelto || '').toLowerCase();
         const search = busqueda.toLowerCase();
         return nombre.includes(search) || email.includes(search);
     });
@@ -152,9 +182,9 @@ export const ResultadosExamenPage = () => {
                                 <tbody>
                                     {alumnosFiltrados.map((item, idx) => {
                                         const id = item.id || idx + 1;
-                                        const nombre = item.nombreAlumno || (item.alumno ? `${item.alumno.nombre} ${item.alumno.apellido || ''}`.trim() : null) || `Alumno #${idx + 1}`;
-                                        const email = item.emailAlumno || item.alumno?.email || 'Sin correo registrado';
-                                        const puntos = item.puntosObtenidos ?? item.puntos ?? 0;
+                                        const nombre = item.nombreResuelto;
+                                        const email = item.emailResuelto;
+                                        const puntos = item.puntosReales;
                                         const totalPts = item.totalPuntos || examen?.puntajeTotal || 20;
                                         const nota = item.calificacion ?? (item.ausente ? '-' : Math.max(1, Math.round((puntos / totalPts) * 5)));
                                         const ausente = Boolean(item.ausente);
@@ -172,7 +202,7 @@ export const ResultadosExamenPage = () => {
                                                         </div>
                                                         <div>
                                                             <p className="font-bold text-slate-800 text-sm">{nombre}</p>
-                                                            <p className="text-xs text-gray-400">ID: {item.idAlumno || item.matricula || `MAT-${idx + 1}`}</p>
+                                                            <p className="text-xs text-gray-400">ID: {item.matResuelta}</p>
                                                         </div>
                                                     </div>
                                                 </td>

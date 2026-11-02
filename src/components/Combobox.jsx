@@ -1,15 +1,5 @@
 import { useState, useRef, useEffect } from "react"
 
-/**
- * COMO IMPLEMENTAR:
- * <Combobox options={options} value={value} onChange={onChange} placeholder="Seleccionar..." />
- *
- * @param {Array}    options     -> Array de { label, value }
- * @param {*}        value       -> Valor seleccionado actualmente
- * @param {Function} onChange    -> Función que recibe el value seleccionado
- * @param {string}   placeholder -> Texto de placeholder
- */
-
 export const Combobox = ({ options = [], value, onChange, placeholder = "Seleccionar...", className = "w-full" }) => {
 
     const [query, setQuery] = useState("")
@@ -20,7 +10,7 @@ export const Combobox = ({ options = [], value, onChange, placeholder = "Selecci
 
     const filtered = query === ""
         ? options
-        : options.filter(o => o.label.toLowerCase().includes(query.toLowerCase()))
+        : options.filter(o => o.label && o.label.toLowerCase().includes(query.toLowerCase()))
 
     function handleSelect(option) {
         onChange(option.value)
@@ -74,9 +64,9 @@ export const Combobox = ({ options = [], value, onChange, placeholder = "Selecci
                     {filtered.length === 0 ? (
                         <li className="px-3 py-2 text-sm text-gray-400">Sin resultados</li>
                     ) : (
-                        filtered.map(option => (
+                        filtered.map((option, index) => (
                             <li
-                                key={option.value}
+                                key={option.value ?? index} // <--- Key única garantizada para evitar el error de React
                                 onClick={() => handleSelect(option)}
                                 className={`px-3 py-2 text-sm cursor-pointer transition-colors
                                     ${option.value === value

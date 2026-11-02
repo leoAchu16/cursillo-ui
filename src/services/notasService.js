@@ -35,6 +35,12 @@ export const obtenerMateria = async (idMateria) => {
   return response.data;
 };
 
+
+export const crearMateria = async (materiaData) => {
+  const response = await api.post('/materias', materiaData);
+  return response.data;
+};
+
 /**
  * ==========================================
  * SERVICIOS DE EXÁMENES
@@ -108,6 +114,30 @@ export const listarInscripcionesPorMateria = async (idMateria) => {
     return filtradas;
   } catch (error) {
     console.warn(`Error al filtrar inscripciones por materia:`, error?.message);
+    return [];
+  }
+};
+
+
+
+export const listarProfesores = async () => {
+  try {
+    const response = await api.get('/materias/profesores'); // <--- Llamamos a la nueva ruta
+    return response.data;
+  } catch (error) {
+    console.warn("No se pudieron cargar los profesores:", error);
+    return [];
+  }
+};
+
+
+export const listarAlumnos = async () => {
+  try {
+    // Usamos la URL absoluta al puerto 8082 para saltarnos el API Gateway
+    const response = await api.get('http://localhost:8082/api/alumnos');
+    return response.data;
+  } catch (error) {
+    console.error("Error al cargar alumnos:", error);
     return [];
   }
 };

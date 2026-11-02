@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { SearchInput } from "../components/SearchInput";
 import { Table } from "../components/Table";
 import { Modal } from "../components/Modal";
-import { listarInscripciones, eliminarInscripcion } from "../services/inscripcionesService";
+import { listarInscripciones, eliminarInscripcion, listarAlumnos } from "../services/inscripcionesService";
 
 export const EnrollmentsPage = () => {
     const navigate = useNavigate();
@@ -41,27 +41,53 @@ export const EnrollmentsPage = () => {
     // Encabezados de la tabla
     const headers = ['Alumno', 'Fecha', 'Total', 'Estado', 'Acciones'];
 
-    // Cargar inscripciones desde el backend
+    // Cargar inscripciones y cruzar con nombres de alumnos desde el backend
     const cargarInscripciones = useCallback(async () => {
         setLoading(true);
         setError(null);
         try {
-            const data = await listarInscripciones(page, size, nombreAlumno);
+            // Hacemos la petición de inscripciones y de alumnos en paralelo
+            const [data, alumnosData] = await Promise.all([
+                listarInscripciones(page, size, nombreAlumno),
+                listarAlumnos().catch(() => [])
+            ]);
 
-            // Maneja respuesta de Spring Page o array simple
+            // Creamos un diccionario (mapa) de ID -> Nombre Completo del alumno
+            const alumnosMap = {};
+            const listaAlumnos = Array.isArray(alumnosData) ? alumnosData : alumnosData?.content || [];
+            listaAlumnos.forEach(alumno => {
+                const id = alumno.id || alumno.idUsuario || alumno.idAlumno;
+                const nombreCompleto = `${alumno.nombre || ''} ${alumno.apellido || ''}`.trim();
+                if (id) {
+                    alumnosMap[id] = nombreCompleto || `Alumno #${id}`;
+                }
+            });
+
+            // Extraer la lista base de inscripciones
+            let listaInscripciones = [];
             if (data && Array.isArray(data.content)) {
-                setInscripciones(data.content);
+                listaInscripciones = data.content;
                 setTotalPages(data.totalPages || 1);
                 setTotalElements(data.totalElements ?? data.content.length);
             } else if (Array.isArray(data)) {
-                setInscripciones(data);
+                listaInscripciones = data;
                 setTotalPages(1);
                 setTotalElements(data.length);
-            } else {
-                setInscripciones([]);
-                setTotalPages(1);
-                setTotalElements(0);
             }
+
+            // Enriquecemos cada inscripción con el nombre real del alumno encontrado en el mapa
+            const inscripcionesEnriquecidas = listaInscripciones.map(item => {
+                const idAlu = item.idAlumno || item.alumnoId || item.alumno?.id;
+                const nombreEncontrado = alumnosMap[idAlu];
+
+                return {
+                    ...item,
+                    nombreAlumnoResuelto: nombreEncontrado || item.nombreAlumno || (item.alumno?.nombre ? `${item.alumno.nombre} ${item.alumno.apellido || ""}`.trim() : null) || `Alumno #${idAlu || 'N/D'}`
+                };
+            });
+
+            setInscripciones(inscripcionesEnriquecidas);
+
         } catch (err) {
             console.error("Error al obtener inscripciones:", err);
             const msg = err.response?.data?.message || err.message;
@@ -122,7 +148,6 @@ export const EnrollmentsPage = () => {
             await eliminarInscripcion(id);
             setSuccessMessage(`Inscripción #${id} eliminada con éxito.`);
             setItemToDelete(null);
-            // Recargar la lista
             cargarInscripciones();
         } catch (err) {
             console.error("Error al eliminar inscripción:", err);
@@ -134,12 +159,7 @@ export const EnrollmentsPage = () => {
 
     // Construcción de filas para la tabla
     const tablaData = inscripciones.map((item, index) => {
-        const nombre =
-            item.nombreAlumno ||
-            (item.alumno?.nombre ? `${item.alumno.nombre} ${item.alumno.apellido || ""}`.trim() : null) ||
-            item.alumno ||
-            `Alumno #${item.idAlumno || item.id || index + 1}`;
-
+        const nombre = item.nombreAlumnoResuelto;
         const idAlumno = item.idAlumno || item.alumno?.id || "N/A";
         const fecha = formatFecha(item.fechaInscripcion || item.fecha || item.fechaCreacion);
 
@@ -243,7 +263,7 @@ export const EnrollmentsPage = () => {
                     value={nombreAlumno}
                     onChange={(e) => {
                         setNombreAlumno(e.target.value);
-                        setPage(0); // Reiniciar a primera página al buscar
+                        setPage(0);
                     }}
                 />
 
@@ -291,11 +311,7 @@ export const EnrollmentsPage = () => {
                             <div>
                                 <span className="text-gray-500 block text-xs">Alumno</span>
                                 <span className="font-semibold text-slate-800">
-                                    {selectedInscripcion.nombreAlumno ||
-                                        (selectedInscripcion.alumno?.nombre
-                                            ? `${selectedInscripcion.alumno.nombre} ${selectedInscripcion.alumno.apellido || ""}`
-                                            : null) ||
-                                        `ID: ${selectedInscripcion.idAlumno}`}
+                                    {selectedInscripcion.nombreAlumnoResuelto}
                                 </span>
                             </div>
                             <div>
@@ -326,15 +342,14 @@ export const EnrollmentsPage = () => {
                             </h4>
 
                             {Array.isArray(selectedInscripcion.detallesInscripcion) &&
-                            selectedInscripcion.detallesInscripcion.length > 0 ? (
+                                selectedInscripcion.detallesInscripcion.length > 0 ? (
                                 <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden max-h-48 overflow-y-auto">
                                     {selectedInscripcion.detallesInscripcion.map((det, idx) => (
                                         <div key={idx} className="p-3 flex justify-between items-center text-sm bg-white">
                                             <div className="flex items-center gap-2">
                                                 <span
-                                                    className={`badge text-xs ${
-                                                        det.tipo === "EXAMEN" ? "badge-warning" : "badge-info"
-                                                    }`}
+                                                    className={`badge text-xs ${det.tipo === "EXAMEN" ? "badge-warning" : "badge-info"
+                                                        }`}
                                                 >
                                                     {det.tipo || (det.idExamen ? "EXAMEN" : "MATERIA")}
                                                 </span>
@@ -361,13 +376,13 @@ export const EnrollmentsPage = () => {
                             <span className="text-lg font-extrabold text-(--btnColor-primary)">
                                 {formatMonto(
                                     selectedInscripcion.montoTotal ??
-                                        selectedInscripcion.total ??
-                                        (Array.isArray(selectedInscripcion.detallesInscripcion)
-                                            ? selectedInscripcion.detallesInscripcion.reduce(
-                                                  (acc, d) => acc + (d.costo || d.monto || 0),
-                                                  0
-                                              )
-                                            : 0)
+                                    selectedInscripcion.total ??
+                                    (Array.isArray(selectedInscripcion.detallesInscripcion)
+                                        ? selectedInscripcion.detallesInscripcion.reduce(
+                                            (acc, d) => acc + (d.costo || d.monto || 0),
+                                            0
+                                        )
+                                        : 0)
                                 )}
                             </span>
                         </div>
@@ -395,7 +410,7 @@ export const EnrollmentsPage = () => {
                         <span className="font-bold">
                             #{itemToDelete?.id || itemToDelete?.idInscripcion}
                         </span>
-                        {itemToDelete?.nombreAlumno ? ` del alumno ${itemToDelete.nombreAlumno}` : ""}?
+                        {itemToDelete?.nombreAlumnoResuelto ? ` del alumno ${itemToDelete.nombreAlumnoResuelto}` : ""}?
                     </p>
                     <p className="text-xs text-rose-600 bg-rose-50 p-3 rounded-lg border border-rose-200">
                         Esta acción realizará un borrado lógico en el sistema de inscripciones.

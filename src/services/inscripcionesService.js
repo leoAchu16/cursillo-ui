@@ -39,12 +39,13 @@ export const eliminarInscripcion = async (id) => {
 
 export const listarAlumnos = async () => {
   try {
-    // Un solo intento limpio al endpoint esperado
-    const response = await api.get('/alumnos');
+    // Usamos la URL absoluta al puerto 8082 para saltarnos el API Gateway
+    // que actualmente nos bloquea con un 404.
+    const response = await api.get('http://localhost:8082/api/alumnos');
     return response.data;
   } catch (error) {
-    console.warn('El endpoint público de alumnos no está disponible en el backend aún.');
-    return []; // Retorna array vacío para que el combobox de la UI no explote
+    console.error("Error al cargar alumnos:", error);
+    return [];
   }
 };
 

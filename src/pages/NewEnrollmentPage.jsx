@@ -57,7 +57,8 @@ export const NewEnrollmentPage = () => {
                         : alumnosData?.content || [];
 
                     const formateados = listaAlumnos.map((a) => {
-                        const id = a.id || a.idAlumno;
+                        // Capturamos de forma segura cualquier variante de ID del backend
+                        const id = a.id || a.idAlumno || a.idUsuario;
                         const nombre = a.nombre ? `${a.nombre} ${a.apellido || ""}`.trim() : a.nombreCompleto || `Alumno #${id}`;
                         return {
                             label: `${nombre} (ID: ${id})`,
@@ -157,6 +158,11 @@ export const NewEnrollmentPage = () => {
                 setStudentCedula(alumno.ci || "");
                 setStudentEmail(alumno.email || "");
             }
+        } else {
+            setStudentIdInput("");
+            setStudentNombre("");
+            setStudentCedula("");
+            setStudentEmail("");
         }
     };
 
@@ -266,9 +272,8 @@ export const NewEnrollmentPage = () => {
             return;
         }
 
-        // Construir el DTO asegurando el campo 'tipoInscripcion' para Spring Boot
         const detallesFormateados = itemsInscripcion.map((it) => ({
-            tipoInscripcion: it.tipo, // <-- CORRECCIÓN APLICADA AQUÍ
+            tipoInscripcion: it.tipo,
             costo: Number(it.costo) || 0,
             ...(it.tipo === "MATERIA" ? { idMateria: Number(it.idMateria) } : {}),
             ...(it.tipo === "EXAMEN" ? { idExamen: Number(it.idExamen), idMateria: it.idMateria ? Number(it.idMateria) : undefined } : {})
@@ -276,7 +281,7 @@ export const NewEnrollmentPage = () => {
 
         const dto = {
             idAlumno: finalIdAlumno,
-            idSecretaria: 5, // Puedes cambiar esto para que tome el ID real de la secretaria autenticada
+            idSecretaria: 5,
             detallesInscripcion: detallesFormateados
         };
 
@@ -320,10 +325,10 @@ export const NewEnrollmentPage = () => {
 
     if (loadingData) {
         return (
-            <div className="flex justify-center items-center h-full">
+            <div className="flex justify-center items-center h-full p-12">
                 <p>Cargando datos...</p>
             </div>
-        )
+        );
     }
 
     return (
@@ -514,8 +519,8 @@ export const NewEnrollmentPage = () => {
                         disabled={submitting || itemsInscripcion.length === 0}
                         onClick={handleSubmitInscripcion}
                         className={`flex items-center px-6 py-2 rounded-xl text-white font-semibold text-sm shadow-md transition-all ${submitting || itemsInscripcion.length === 0
-                            ? "bg-slate-300 cursor-not-allowed shadow-none"
-                            : "bg-green-600 hover:bg-green-700 cursor-pointer"
+                                ? "bg-slate-300 cursor-not-allowed shadow-none"
+                                : "bg-green-600 hover:bg-green-700 cursor-pointer"
                             }`}
                     >
                         {submitting ? "Guardando..." : "Confirmar Inscripción"}
