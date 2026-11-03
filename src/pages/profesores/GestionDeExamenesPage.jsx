@@ -26,7 +26,6 @@ export const GestionExamenesPage = () => {
         setLoading(true);
         setError(null);
         try {
-            // Intentar cargar info de la materia
             try {
                 const matData = await obtenerMateria(materiaId);
                 setMateria(matData);
@@ -34,7 +33,6 @@ export const GestionExamenesPage = () => {
                 console.warn('No se pudo obtener información de la materia:', e);
             }
 
-            // Cargar exámenes
             const data = await listarExamenesPorMateria(materiaId);
             const lista = Array.isArray(data) ? data : data?.content || data?.data || [];
             setExamenes(lista);
@@ -58,20 +56,48 @@ export const GestionExamenesPage = () => {
 
         setCreando(true);
         try {
-            await crearExamen({
+            // Formatear la hora a HH:mm:ss como lo exige Spring Boot
+            const horaIngresada = nuevoExamen.hora || '08:00';
+            const horaFormateada = horaIngresada.length === 5 ? `${horaIngresada}:00` : horaIngresada;
+
+            // Extraer el id del profesor REAL directamente desde el Token JWT de la sesión
+            let idProfesorAutenticado = null;
+            try {
+                const token = localStorage.getItem('token');
+                if (token) {
+                    const payloadBase64 = token.split('.')[1];
+                    const decodedJson = atob(payloadBase64);
+                    const payloadData = JSON.parse(decodedJson);
+                    idProfesorAutenticado = parseInt(payloadData.sub);
+                }
+            } catch (error) {
+                console.warn("No se pudo extraer idProfesor del token JWT", error);
+            }
+
+            // Si por algún motivo falla, usar el ID 6 que es tu Profesor Titular por defecto en api.js
+            if (!idProfesorAutenticado || isNaN(idProfesorAutenticado)) {
+                idProfesorAutenticado = 6;
+            }
+
+            const payload = {
                 idMateria: Number(materiaId),
-                materiaId: Number(materiaId),
-                nombre: nuevoExamen.nombre,
+                idProfesor: idProfesorAutenticado, // Usamos el ID real extraído del token
+                titulo: nuevoExamen.nombre,
                 fecha: nuevoExamen.fecha || new Date().toISOString().split('T')[0],
-                hora: nuevoExamen.hora || '08:00',
-                puntajeTotal: Number(nuevoExamen.puntajeTotal) || 20
-            });
+                hora: horaFormateada,
+                totalPuntos: Number(nuevoExamen.puntajeTotal) || 20,
+                estado: "PENDIENTE"
+            };
+
+            await crearExamen(payload);
+
             setIsModalOpen(false);
             setNuevoExamen({ nombre: '', fecha: '', hora: '', puntajeTotal: 20 });
             await cargarDatos();
         } catch (err) {
             console.error('Error al crear examen:', err);
-            alert('No se pudo crear el examen: ' + (err.response?.data?.message || err.message));
+            const backendError = err.response?.data?.message || err.response?.data?.error || JSON.stringify(err.response?.data) || err.message;
+            alert(`No se pudo crear el examen.\nDetalle: ${backendError}`);
         } finally {
             setCreando(false);
         }
@@ -155,11 +181,11 @@ export const GestionExamenesPage = () => {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {examenes.map((examen, idx) => {
                         const id = examen.id || examen.idExamen || idx + 1;
-                        const nombre = examen.nombre || examen.nombreExamen || examen.titulo || `Examen #${id}`;
+                        const nombre = examen.titulo || examen.nombre || examen.nombreExamen || `Examen #${id}`;
                         const fecha = examen.fecha || examen.fechaExamen || 'Fecha no definida';
                         const hora = examen.hora || examen.horario || '';
                         const estado = (examen.estado || (examen.calificado ? 'CALIFICADO' : 'PENDIENTE')).toUpperCase();
-                        const puntos = examen.puntajeTotal || examen.totalPuntos || examen.puntosMaximos || 20;
+                        const puntos = examen.totalPuntos || examen.puntajeTotal || examen.puntosMaximos || 20;
 
                         const isCalificado = estado === 'CALIFICADO';
                         const isEnProgreso = estado === 'EN PROGRESO' || estado === 'EN_PROGRESO';
@@ -171,13 +197,12 @@ export const GestionExamenesPage = () => {
                             >
                                 <div className="flex justify-between items-center mb-2">
                                     <span
-                                        className={`badge !w-fit !text-[10px] px-2 py-0.5 ${
-                                            isCalificado
+                                        className={`badge !w-fit !text-[10px] px-2 py-0.5 ${isCalificado
                                                 ? 'badge-success'
                                                 : isEnProgreso
-                                                ? 'badge-warning'
-                                                : '!bg-gray-100 !text-gray-500 border-none'
-                                        }`}
+                                                    ? 'badge-warning'
+                                                    : '!bg-gray-100 !text-gray-500 border-none'
+                                            }`}
                                     >
                                         {estado}
                                     </span>

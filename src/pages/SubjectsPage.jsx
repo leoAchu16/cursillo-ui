@@ -188,8 +188,8 @@ export const SubjectsPage = () => {
                                             key={dia}
                                             onClick={() => handleDiaToggle(dia)}
                                             className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-colors cursor-pointer ${isSelected
-                                                    ? 'bg-(--btnColor-primary) text-white border-(--btnColor-primary)'
-                                                    : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'
+                                                ? 'bg-(--btnColor-primary) text-white border-(--btnColor-primary)'
+                                                : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'
                                                 }`}
                                         >
                                             {dia}
