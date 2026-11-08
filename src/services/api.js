@@ -72,13 +72,13 @@ export const getLoggedUser = () => {
   }
 
   // Fallback de seguridad en caso de que no haya token o sea inválido
-  return { id: 1, idProfesor: 1, nombre: 'Profesor Titular', rol: 'profesor' };
+  return { id: 6, idProfesor: 6, nombre: 'Profesor Titular', rol: 'profesor' };
 };
 
 // Helper para obtener el ID del profesor actual
 export const getProfesorId = () => {
   const user = getLoggedUser();
-  return user?.idProfesor || user?.id || 1;
+  return user?.idProfesor || user?.id || 6;
 };
 
 export default api;

@@ -15,6 +15,8 @@ import { DetalleMateriaPage } from './pages/profesores/DetalleMateriaPage';
 import { SeleccionMateriaExamenPage } from './pages/profesores/SeleccionMateriaExamenPage';
 import { CalificarExamenPage } from './pages/profesores/CalificarExamenPage';
 import { ResultadosExamenPage } from './pages/profesores/ResultadosExamenPage';
+import { FacturasPage } from './pages/facturacion/FacturasPage';
+import { ConceptosPage } from './pages/facturacion/ConceptosPage';
 
 function App() {
   return (
@@ -36,6 +38,10 @@ function App() {
           <Route path='materias/:materiaId' element={<DetalleMateriaPage />} />
           <Route path='materias/examenes/:materiaId/calificar' element={<CalificarExamenPage />} />
           <Route path='materias/examenes/:materiaId/resultados/:examenId' element={<ResultadosExamenPage />} />
+
+
+          <Route path='facturas' element={<FacturasPage />} />
+          <Route path='conceptos' element={<ConceptosPage />} />
         </Route>
 
         <Route path='/login' element={<LoginPage />} />

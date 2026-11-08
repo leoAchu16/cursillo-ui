@@ -10,7 +10,8 @@ export const Sidebar = ({ role = "secretaria" }) => {
         { label: "Materias", value: "materias", icon: "icon-[heroicons--book-open]", path: "/materias" },
         { label: "Alumnos", value: "alumnos", icon: "icon-[heroicons--users]", path: "/alumnos" },
         { label: "Inscripciones", value: "inscripciones", icon: "icon-[heroicons--clipboard-document-list]", path: "/inscripciones" },
-        { label: "Facturación", value: "facturacion", icon: "icon-[heroicons--banknotes]", path: "/facturacion" }
+        { label: "Facturas", value: "facturas", icon: "icon-[heroicons--document-text]", path: "/facturas" },
+        { label: "Conceptos", value: "conceptos", icon: "icon-[heroicons--tag]", path: "/conceptos" },
     ];
 
     const opcionesProfesor = [
