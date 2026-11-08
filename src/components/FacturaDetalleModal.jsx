@@ -1,10 +1,11 @@
 import { Modal } from './Modal';
 import { Table } from './Table';
+import { codigoFactura } from './codigoFactura';
 
 export const FacturaDetalleModal = ({ factura, onClose, guaranies, mapaConceptos }) => {
     if (!factura) return null;
 
-    const nombreConcepto = (id) => mapaConceptos[id]?.nombre ?? `Concepto ${id}`;
+    const nombreConcepto = (id) => mapaConceptos[id]?.nombre ?? 'Concepto no disponible';
 
     const detalles = factura.detallesFactura ?? [];
     const filasDetalle = detalles.map((d) => [
@@ -17,7 +18,7 @@ export const FacturaDetalleModal = ({ factura, onClose, guaranies, mapaConceptos
         <Modal
             isOpen={Boolean(factura)}
             onClose={onClose}
-            title={`Detalle de Factura N° ${factura.idFactura}`}
+            title={`Detalle de Factura ${codigoFactura(factura.idFactura)}`}
         >
             <div className="p-6 flex flex-col gap-4 text-sm">
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-gray-50 p-4 rounded-xl text-xs">
@@ -29,12 +30,8 @@ export const FacturaDetalleModal = ({ factura, onClose, guaranies, mapaConceptos
                     </div>
                     <div>
                         <span className="text-gray-400 block font-semibold uppercase">Secretaría</span>
-                        <span className="font-medium text-slate-700">N° {factura.idSecretaria}</span>
-                    </div>
-                    <div>
-                        <span className="text-gray-400 block font-semibold uppercase">Inscripción</span>
                         <span className="font-medium text-slate-700">
-                            {factura.idInscripcion ? `N° ${factura.idInscripcion}` : '-'}
+                            {factura.nombreSecretaria ?? '-'}
                         </span>
                     </div>
                     <div>

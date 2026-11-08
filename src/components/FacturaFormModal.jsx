@@ -1,4 +1,5 @@
 import { Modal } from './Modal';
+import { codigoFactura } from './codigoFactura';
 
 const METODOS_PAGO = ['EFECTIVO', 'TARJETA', 'TRANSFERENCIA'];
 const inputClase = 'w-full mt-1 p-2.5 text-sm border border-(--borderColor-input) rounded-lg bg-gray-50 focus:bg-white focus:border-(--btnColor-primary) outline-none';
@@ -16,6 +17,11 @@ export const FacturaFormModal = ({
     totalLineas,
     onGuardar,
     onCambiarCampo,
+    alumnos = [],
+    inscripciones = [],
+    cargandoInscripciones = false,
+    etiquetaInscripcion = () => '',
+    onElegirAlumno,
     onCambiarLinea,
     onAgregarLinea,
     onQuitarLinea,
@@ -29,48 +35,60 @@ export const FacturaFormModal = ({
         <Modal
             isOpen={Boolean(formulario)}
             onClose={onClose}
-            title={editando ? `Editar factura N° ${formulario.id}` : 'Emitir Nueva Factura'}
+            title={editando ? `Editar factura ${codigoFactura(formulario.id)}` : 'Emitir Nueva Factura'}
         >
             <form onSubmit={onGuardar} className="p-6 flex flex-col gap-4">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {editando ? (
                     <div>
-                        <label htmlFor="f-alumno" className={etiquetaClase}>ID Alumno</label>
-                        <input
-                            id="f-alumno"
-                            type="number"
-                            min="1"
-                            value={formulario.idAlumno}
-                            onChange={(e) => onCambiarCampo('idAlumno', e.target.value)}
-                            disabled={editando}
-                            placeholder="Ej: 4"
-                            className={`${inputClase} disabled:opacity-60`}
-                        />
+                        <span className={etiquetaClase}>Alumno</span>
+                        <p className="mt-1 p-2.5 text-sm rounded-lg bg-gray-100 text-slate-700">
+                            {formulario.nombreAlumno ?? 'Alumno'}
+                        </p>
                     </div>
-                    <div>
-                        <label htmlFor="f-secretaria" className={etiquetaClase}>ID Secretaría</label>
-                        <input
-                            id="f-secretaria"
-                            type="number"
-                            min="1"
-                            value={formulario.idSecretaria}
-                            onChange={(e) => onCambiarCampo('idSecretaria', e.target.value)}
-                            disabled={editando}
-                            className={`${inputClase} disabled:opacity-60`}
-                        />
+                ) : (
+                    <div className="flex flex-col gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label htmlFor="f-alumno" className={etiquetaClase}>Alumno</label>
+                                <select
+                                    id="f-alumno"
+                                    value={formulario.idAlumno}
+                                    onChange={(e) => onElegirAlumno(e.target.value)}
+                                    className={inputClase}
+                                >
+                                    <option value="">Elegí un alumno</option>
+                                    {alumnos.map((a) => (
+                                        <option key={a.idAlumno} value={a.idAlumno}>{a.nombre}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label htmlFor="f-inscripcion" className={etiquetaClase}>Inscripción a cobrar</label>
+                                <select
+                                    id="f-inscripcion"
+                                    value={formulario.idInscripcion}
+                                    onChange={(e) => onCambiarCampo('idInscripcion', e.target.value)}
+                                    disabled={!formulario.idAlumno || cargandoInscripciones}
+                                    className={`${inputClase} disabled:opacity-60`}
+                                >
+                                    <option value="">
+                                        {cargandoInscripciones ? 'Cargando...' : 'Elegí una inscripción'}
+                                    </option>
+                                    {inscripciones.map((i) => (
+                                        <option key={i.idInscripcion} value={i.idInscripcion}>
+                                            {etiquetaInscripcion(i)}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                        {formulario.idAlumno && !cargandoInscripciones && inscripciones.length === 0 && (
+                            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                                Este alumno no tiene inscripciones pendientes de pago.
+                            </p>
+                        )}
                     </div>
-                    <div>
-                        <label htmlFor="f-inscripcion" className={etiquetaClase}>ID Inscripción</label>
-                        <input
-                            id="f-inscripcion"
-                            type="number"
-                            min="1"
-                            value={formulario.idInscripcion}
-                            onChange={(e) => onCambiarCampo('idInscripcion', e.target.value)}
-                            disabled={editando}
-                            className={`${inputClase} disabled:opacity-60`}
-                        />
-                    </div>
-                </div>
+                )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>

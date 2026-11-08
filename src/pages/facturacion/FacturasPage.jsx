@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
     listarFacturas,
     crearFactura,
@@ -8,16 +8,19 @@ import {
     mensajeDeError,
 } from './services/facturacionService';
 import { obtenerAlumnoPorId } from './services/alumnosService';
+import { obtenerSecretariaPorId } from './services/secretariasService';
+import { listarAlumnos, listarInscripcionesPendientes } from './services/opcionesFacturaService';
 import { JwtTokenModal } from '../../components/JwtTokenModal';
 import { BotonToken } from '../../components/BotonToken';
 import { SearchInput } from '../../components/SearchInput';
 import { Table } from '../../components/Table';
 import { FacturaDetalleModal } from '../../components/FacturaDetalleModal';
 import { FacturaFormModal } from '../../components/FacturaFormModal';
+import { codigoFactura, normalizarBusqueda } from '../../components/codigoFactura';
 
 const TAMANO_PAGINA = 10;
 const METODOS_PAGO = ['EFECTIVO', 'TARJETA', 'TRANSFERENCIA'];
-const HEADERS = ['N°', 'Alumno', 'RUC', 'Fecha', 'Método', 'Total', 'Acciones'];
+const HEADERS = ['Código', 'Alumno', 'RUC', 'Fecha', 'Método', 'Total', 'Acciones'];
 const BADGE_METODO = {
     EFECTIVO: 'badge badge-success',
     TARJETA: 'badge badge-info',
@@ -38,11 +41,22 @@ const formatearFecha = (fecha) => {
     return m ? `${m[3]}/${m[2]}/${m[1]}` : fecha;
 };
 
+// El id de la secretaria sale del token de la sesión (claim "id"), no se pide en el formulario
+const idSecretariaLogueada = () => {
+    try {
+        const token = localStorage.getItem('token');
+        const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+        return payload.id ? String(payload.id) : '';
+    } catch {
+        return '';
+    }
+};
+
 const formularioVacio = () => ({
     id: null,
     idAlumno: '',
-    idSecretaria: '1',
-    idInscripcion: '1',
+    idSecretaria: idSecretariaLogueada(),
+    idInscripcion: '',
     ruc: '',
     metodoPago: 'EFECTIVO',
     fechaEmision: hoy(),
@@ -75,6 +89,14 @@ export const FacturasPage = () => {
 
     const [facturaVista, setFacturaVista] = useState(null);
     const [tokenModalAbierto, setTokenModalAbierto] = useState(false);
+
+    // nombres de alumnos ya consultados (evita repetir la misma llamada)
+    const cacheAlumnos = useRef({});
+    const cacheSecretarias = useRef({});
+
+    const [alumnos, setAlumnos] = useState([]);
+    const [inscripciones, setInscripciones] = useState([]);
+    const [cargandoInscripciones, setCargandoInscripciones] = useState(false);
 
     const mapaConceptos = useMemo(
         () => Object.fromEntries(conceptos.map((c) => [c.idConcepto, c])),
@@ -113,7 +135,7 @@ export const FacturasPage = () => {
             const resultado = await listarFacturas({
                 page: pagina,
                 size: TAMANO_PAGINA,
-                q: filtro,
+                q: normalizarBusqueda(filtro),
                 metodoPago: metodo,
             });
 
@@ -122,14 +144,22 @@ export const FacturasPage = () => {
                 return;
             }
 
-            // Se completa cada factura con el nombre real del alumno
-            const facturasConAlumnos = await Promise.all(
-                resultado.content.map(async (f) => {
-                    if (f.nombreAlumno) return f;
-                    const alumnoReal = await obtenerAlumnoPorId(f.idAlumno);
-                    return { ...f, nombreAlumno: alumnoReal.nombre };
+            // Se pide cada alumno una sola vez, aunque tenga varias facturas
+            const idsUnicos = [...new Set(resultado.content.map((f) => f.idAlumno))];
+            await Promise.all(
+                idsUnicos.map(async (id) => {
+                    if (cacheAlumnos.current[id]) return;
+                    const alumno = await obtenerAlumnoPorId(id);
+                    // si falló la consulta no se guarda, para reintentar la próxima vez
+                    if (!alumno.nombre.startsWith('Alumno N°')) {
+                        cacheAlumnos.current[id] = alumno.nombre;
+                    }
                 })
             );
+            const facturasConAlumnos = resultado.content.map((f) => ({
+                ...f,
+                nombreAlumno: cacheAlumnos.current[f.idAlumno] ?? `Alumno N° ${f.idAlumno}`,
+            }));
 
             setFacturas(facturasConAlumnos);
             setTotalPaginas(resultado.totalPages);
@@ -166,10 +196,45 @@ export const FacturasPage = () => {
         );
     };
 
+    const cargarAlumnos = async () => {
+        try {
+            setAlumnos(await listarAlumnos());
+        } catch (err) {
+            setErrorForm(mensajeDeError(err));
+        }
+    };
+
     const abrirNueva = () => {
         setErrorForm(null);
         setFormulario(formularioVacio());
         setLineas([lineaVacia()]);
+        setInscripciones([]);
+        cargarAlumnos();
+    };
+
+    // Al elegir el alumno se traen solo sus inscripciones pendientes de pago
+    const elegirAlumno = async (idAlumno) => {
+        setFormulario((prev) => ({ ...prev, idAlumno, idInscripcion: '' }));
+        setInscripciones([]);
+        if (!idAlumno) return;
+        setCargandoInscripciones(true);
+        try {
+            const pendientes = await listarInscripcionesPendientes(idAlumno);
+            setInscripciones(pendientes);
+            // si tiene una sola, queda elegida
+            if (pendientes.length === 1) {
+                setFormulario((prev) => ({ ...prev, idInscripcion: String(pendientes[0].idInscripcion) }));
+            }
+        } catch (err) {
+            setErrorForm(mensajeDeError(err));
+        } finally {
+            setCargandoInscripciones(false);
+        }
+    };
+
+    const etiquetaInscripcion = (i) => {
+        const conceptos = (i.conceptos ?? []).join(', ');
+        return `${formatearFecha(i.fechaInscripcion)} – ${conceptos || 'Inscripción'} – ${guaranies.format(i.total ?? 0)}`;
     };
 
     const abrirEdicion = (f) => {
@@ -177,6 +242,7 @@ export const FacturasPage = () => {
         setFormulario({
             id: f.idFactura,
             idAlumno: f.idAlumno,
+            nombreAlumno: f.nombreAlumno,
             idSecretaria: f.idSecretaria,
             idInscripcion: f.idInscripcion ?? '',
             ruc: f.ruc ?? '',
@@ -191,7 +257,10 @@ export const FacturasPage = () => {
         const editando = Boolean(formulario.id);
         const ruc = formulario.ruc.trim();
 
-        if (!formulario.idAlumno) return setErrorForm('Escribí un ID de alumno.');
+        if (!formulario.idAlumno) return setErrorForm('Elegí un alumno.');
+        if (!editando && !formulario.idInscripcion) return setErrorForm('Elegí la inscripción que se está cobrando.');
+        if (!editando && !formulario.idSecretaria) return setErrorForm('No se pudo identificar a la secretaria. Volvé a iniciar sesión.');
+        if (!editando && lineas.some((l) => !l.idConcepto)) return setErrorForm('Elegí un concepto en cada línea.');
         if (!ruc) return setErrorForm('Escribí el RUC.');
 
         let datos;
@@ -237,7 +306,7 @@ export const FacturasPage = () => {
     };
 
     const eliminar = async (f) => {
-        if (!window.confirm(`¿Eliminar la factura N° ${f.idFactura}?`)) return;
+        if (!window.confirm(`¿Eliminar la factura ${codigoFactura(f.idFactura)}?`)) return;
         try {
             await eliminarFactura(f.idFactura);
             mostrarAviso('ok', 'Factura eliminada.');
@@ -249,7 +318,7 @@ export const FacturasPage = () => {
 
     // Datos para el componente Table compartido
     const filas = facturas.map((f) => [
-        f.idFactura,
+        codigoFactura(f.idFactura),
         f.nombreAlumno ?? `Alumno N° ${f.idAlumno}`,
         f.ruc,
         formatearFecha(f.fechaEmision),
@@ -257,11 +326,21 @@ export const FacturasPage = () => {
         guaranies.format(f.total ?? 0),
     ]);
 
-    // la primera celda de cada fila es el id de la factura
-    const buscarFactura = (fila) => facturas.find((f) => f.idFactura === fila[0]);
+    // la primera celda de cada fila es el código de la factura
+    const buscarFactura = (fila) => facturas.find((f) => codigoFactura(f.idFactura) === fila[0]);
+
+    // Al abrir el detalle se busca el nombre de la secretaria (una sola vez por secretaria)
+    const verDetalle = async (f) => {
+        let nombre = cacheSecretarias.current[f.idSecretaria];
+        if (!nombre) {
+            nombre = await obtenerSecretariaPorId(f.idSecretaria);
+            if (nombre) cacheSecretarias.current[f.idSecretaria] = nombre;
+        }
+        setFacturaVista({ ...f, nombreSecretaria: nombre });
+    };
 
     const acciones = [
-        { type: 'view', title: 'Ver detalle', onClick: (fila) => setFacturaVista(buscarFactura(fila)) },
+        { type: 'view', title: 'Ver detalle', onClick: (fila) => verDetalle(buscarFactura(fila)) },
         { type: 'edit', title: 'Editar', onClick: (fila) => abrirEdicion(buscarFactura(fila)) },
         { type: 'delete', title: 'Eliminar', onClick: (fila) => eliminar(buscarFactura(fila)) },
     ];
@@ -371,6 +450,11 @@ export const FacturasPage = () => {
                 totalLineas={totalLineas}
                 onGuardar={guardar}
                 onCambiarCampo={cambiarCampo}
+                alumnos={alumnos}
+                inscripciones={inscripciones}
+                cargandoInscripciones={cargandoInscripciones}
+                etiquetaInscripcion={etiquetaInscripcion}
+                onElegirAlumno={elegirAlumno}
                 onCambiarLinea={cambiarLinea}
                 onAgregarLinea={() => setLineas((prev) => [...prev, lineaVacia()])}
                 onQuitarLinea={(i) => setLineas((prev) => prev.filter((_, idx) => idx !== i))}
