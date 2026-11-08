@@ -1,7 +1,7 @@
 import imgLogo from '../assets/soloLogo.png';
 import { useNavigate, useLocation } from 'react-router-dom';
 
-export const Sidebar = ({ role = "profesor" }) => {
+export const Sidebar = ({ role = "secretaria" }) => {
     const navigate = useNavigate();
     const location = useLocation();
 

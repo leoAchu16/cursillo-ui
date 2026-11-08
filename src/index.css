@@ -118,7 +118,7 @@ Como usar:
 
   /*-------------------------------------ESTILOS PARA BOTONES-------------------------------------*/
   .btn-primary {
-    @apply flex items-center bg-(--btnColor-primary) text-(--textColor-secondary) rounded-xl p-2 shadow-md hover:bg-(--btnColor-primary-hover) transition-colors cursor-pointer;
+    @apply flex items-center justify-center bg-(--btnColor-primary) text-(--textColor-secondary) rounded-xl p-2 shadow-md hover:bg-(--btnColor-primary-hover) transition-colors cursor-pointer;
   }
 
 
