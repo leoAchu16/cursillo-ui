@@ -13,7 +13,7 @@ import { Modal } from '../../components/Modal';
 import { Table } from '../../components/Table';
 
 const TAMANO_PAGINA = 10;
-const HEADERS = ['N°', 'Nombre', 'Monto base', 'Acciones'];
+const HEADERS = ['Código', 'Nombre', 'Monto base', 'Acciones'];
 
 const guaranies = new Intl.NumberFormat('es-PY', {
     style: 'currency',
@@ -23,6 +23,9 @@ const guaranies = new Intl.NumberFormat('es-PY', {
 
 const inputClase =
     'w-full mt-1 p-2.5 text-sm border border-(--borderColor-input) rounded-lg bg-gray-50 focus:bg-white focus:border-(--btnColor-primary) outline-none';
+
+// El código que se muestra (CON-001) se arma a partir del id interno
+const codigoConcepto = (id) => `CON-${String(id).padStart(3, '0')}`;
 
 const formularioVacio = () => ({ id: null, nombre: '', montoBase: '' });
 
@@ -134,10 +137,10 @@ export const ConceptosPage = () => {
     };
 
     // Datos para el componente Table compartido
-    const filas = conceptos.map((c) => [c.idConcepto, c.nombre, guaranies.format(c.montoBase ?? 0)]);
+    const filas = conceptos.map((c) => [codigoConcepto(c.idConcepto), c.nombre, guaranies.format(c.montoBase ?? 0)]);
 
-    // la primera celda de cada fila es el id del concepto
-    const buscarConcepto = (fila) => conceptos.find((c) => c.idConcepto === fila[0]);
+    // la primera celda de cada fila es el código del concepto
+    const buscarConcepto = (fila) => conceptos.find((c) => codigoConcepto(c.idConcepto) === fila[0]);
 
     const acciones = [
         { type: 'edit', title: 'Editar', onClick: (fila) => abrirEdicion(buscarConcepto(fila)) },
