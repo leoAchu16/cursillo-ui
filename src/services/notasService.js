@@ -122,8 +122,8 @@ export const listarInscripcionesPorMateria = async (idMateria) => {
 
 export const listarProfesores = async () => {
   try {
-    const response = await api.get('/materias/profesores'); // <--- Llamamos a la nueva ruta
-    return response.data;
+    const response = await api.get('/usuarios', { params: { rol: 'PROFESOR' } });
+    return response.data?.content || [];
   } catch (error) {
     console.warn("No se pudieron cargar los profesores:", error);
     return [];
@@ -133,9 +133,8 @@ export const listarProfesores = async () => {
 
 export const listarAlumnos = async () => {
   try {
-    // Usamos la URL absoluta al puerto 8082 para saltarnos el API Gateway
-    const response = await api.get('http://localhost:8082/api/alumnos');
-    return response.data;
+    const response = await api.get('/usuarios', { params: { rol: 'ALUMNO' } });
+    return response.data?.content || [];
   } catch (error) {
     console.error("Error al cargar alumnos:", error);
     return [];

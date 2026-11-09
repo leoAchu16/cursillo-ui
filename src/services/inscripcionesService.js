@@ -34,15 +34,13 @@ export const eliminarInscripcion = async (id) => {
 };
 
 /** ============================================================================
- *  SERVICIO DE ALUMNOS (Pendiente de Microservicio de Usuarios)
+ *  SERVICIO DE ALUMNOS
  *  ============================================================================ */
 
 export const listarAlumnos = async () => {
   try {
-    // Usamos la URL absoluta al puerto 8082 para saltarnos el API Gateway
-    // que actualmente nos bloquea con un 404.
-    const response = await api.get('http://localhost:8082/api/alumnos');
-    return response.data;
+    const response = await api.get('/usuarios', { params: { rol: 'ALUMNO' } });
+    return response.data?.content || [];
   } catch (error) {
     console.error("Error al cargar alumnos:", error);
     return [];
