@@ -6,7 +6,7 @@ import { LoginPage } from './pages/LoginPage';
 import { EnrollmentsPage } from './pages/EnrollmentsPage';
 import { StudentsPage } from './pages/StudentsPage';
 import { InvoicePage } from './pages/InvoicePage';
-import { DashboardPage } from './pages/DashboardPage';
+import { DashboardPageSecretary } from './pages/DashboardPageSecretary';
 import { NewEnrollmentPage } from './pages/NewEnrollmentPage';
 import { DashboardPageTeacher } from './pages/profesores/DashboardPageTeacher';
 import { MisMateriasPage } from './pages/profesores/MisMateriasPage';
@@ -23,7 +23,7 @@ function App() {
     <Router>
       <Routes>
         <Route path='/' element={<Layout />}>
-          <Route path='/' element={<DashboardPage />} />
+          <Route path='/' element={<DashboardPageSecretary />} />
           <Route path='materias' element={<SubjectsPage />} />
           <Route path='inscripciones' element={<EnrollmentsPage />} />
           <Route path='alumnos' element={<StudentsPage />} />
