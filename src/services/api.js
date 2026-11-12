@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { jwtDecode } from 'jwt-decode';
 
 // Base URL: prioriza '/api' para usar siempre el proxy de Vite en desarrollo
 // y evitar problemas de CORS con el API Gateway
@@ -28,7 +29,9 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && (error.response.status === 401 || error.response.status === 403)) {
-      console.warn(`Respuesta de seguridad (${error.response.status}) del Gateway / Microservicio.`);
+      console.warn('Sesión expirada o sin permisos. Redirigiendo a login...');
+      localStorage.removeItem('token');
+      window.location.href = '/login';
     }
     return Promise.reject(error);
   }
@@ -47,24 +50,17 @@ export const setStoredToken = (token) => {
   }
 };
 
-// Helper para obtener el usuario autenticado directamente desde el JWT
+// Helper para obtener el usuario autenticado
 export const getLoggedUser = () => {
   try {
     const token = localStorage.getItem('token');
     if (token) {
-      // El JWT tiene 3 partes separadas por punto: header.payload.signature
-      const payloadBase64 = token.split('.')[1];
+      const payloadData = jwtDecode(token);
 
-      // Decodificamos la parte del payload
-      const decodedJson = atob(payloadBase64);
-      const payloadData = JSON.parse(decodedJson);
-
-      // Mapeamos los datos del JWT a nuestro objeto de usuario
       return {
-        id: parseInt(payloadData.sub),
-        idProfesor: parseInt(payloadData.sub),
-        nombre: 'Profesor Autenticado',
-        rol: payloadData.roles ? payloadData.roles[0] : 'PROFESOR'
+        id: payloadData.id,
+        email: payloadData.sub,
+        rol: payloadData.roles ? payloadData.roles[0] : null
       };
     }
   } catch (e) {
@@ -72,13 +68,13 @@ export const getLoggedUser = () => {
   }
 
   // Fallback de seguridad en caso de que no haya token o sea inválido
-  return { id: 6, idProfesor: 6, nombre: 'Profesor Titular', rol: 'profesor' };
+  return null;
 };
 
 // Helper para obtener el ID del profesor actual
 export const getProfesorId = () => {
   const user = getLoggedUser();
-  return user?.idProfesor || user?.id || 6;
+  return user?.idProfesor || user?.id || null;
 };
 
 export default api;
