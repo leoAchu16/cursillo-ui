@@ -34,6 +34,7 @@ export const LoginPage = () => {
                 console.log('Sesion iniciada: ', usuario);
                 if (usuario.rol === 'SECRETARIA') navigate('/');
                 else if (usuario.rol === 'PROFESOR') navigate('/profesor/dashboard');
+                else if (usuario.rol === 'ALUMNO') navigate('/alumno/tablero');
             } catch (err) {
                 setError('Credenciales incorrectas.')
                 setCargando(false);

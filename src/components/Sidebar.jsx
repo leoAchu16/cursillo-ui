@@ -20,6 +20,13 @@ export const Sidebar = ({ role }) => {
             { label: "Dashboard", value: "dashboard", icon: "icon-[heroicons--squares-2x2]", path: "/profesor/dashboard" },
             { label: "Materias", value: "materias", icon: "icon-[heroicons--book-open]", path: "/materias/mis-materias" },
             { label: "Exámenes", value: "examenes", icon: "icon-[heroicons--clipboard-document-check]", path: "/materias/examenes" }
+        ],
+
+        ALUMNO: [
+            { label: "Tablero", value: "tablero", icon: "icon-[heroicons--squares-2x2]", path: "/alumno/tablero" },
+            { label: "Mis Materias", value: "mis-materias", icon: "icon-[heroicons--book-open]", path: "/alumno/mis-materias" },
+            { label: "Mis Exámenes", value: "mis-examenes", icon: "icon-[heroicons--clipboard-document-check]", path: "/alumno/mis-examenes" },
+            { label: "Facturación", value: "facturacion", icon: "icon-[heroicons--document-text]", path: "/alumno/facturacion" }
         ]
     }
 
