@@ -1,5 +1,5 @@
 import { Sidebar } from "./Sidebar"
-import { Outlet } from "react-router"
+import { Outlet, Navigate } from "react-router-dom"
 import { authService } from '../services/authService'
 
 export const Layout = () => {

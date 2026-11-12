@@ -48,7 +48,7 @@ export const Sidebar = ({ role }) => {
                 <img src={imgLogo} className="max-h-20 object-contain" alt="Logo" />
                 <div className="flex flex-col my-auto ml-2">
                     <h1 className="text-(--btnColor-primary) text-[25px]">CursilloPy</h1>
-                    <label className="text-gray-400 capitalize">{role.toLowerCase()}</label>
+                    <label className="text-gray-400 capitalize">{role ? role.toLowerCase() : ''}</label>
                 </div>
             </div>
 
