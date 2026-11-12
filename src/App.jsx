@@ -17,6 +17,9 @@ import { CalificarExamenPage } from './pages/profesores/CalificarExamenPage';
 import { ResultadosExamenPage } from './pages/profesores/ResultadosExamenPage';
 import { FacturasPage } from './pages/facturacion/FacturasPage';
 import { ConceptosPage } from './pages/facturacion/ConceptosPage';
+import { DashboardPageAlumno } from './pages/alumnos/DashboardPage';
+import { MisMateriasAlumnoPage } from './pages/alumnos/MisMateriasPage';
+import { MisExamenesPage } from './pages/alumnos/MisExamenesPage';
 
 function App() {
   return (
@@ -38,6 +41,11 @@ function App() {
           <Route path='materias/:materiaId' element={<DetalleMateriaPage />} />
           <Route path='materias/examenes/:materiaId/calificar' element={<CalificarExamenPage />} />
           <Route path='materias/examenes/:materiaId/resultados/:examenId' element={<ResultadosExamenPage />} />
+
+          {/* Rutas del Módulo de Alumno */}
+          <Route path='alumno/tablero' element={<DashboardPageAlumno />} />
+          <Route path='alumno/mis-materias' element={<MisMateriasAlumnoPage />} />
+          <Route path='alumno/mis-examenes' element={<MisExamenesPage />} />
 
 
           <Route path='facturas' element={<FacturasPage />} />
