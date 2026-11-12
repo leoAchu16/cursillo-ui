@@ -1,64 +1,73 @@
 import imgLogo from '../assets/soloLogo.png';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { authService } from '../services/authService';
 
-export const Sidebar = ({ role = "secretaria" }) => {
+export const Sidebar = ({ role }) => {
     const navigate = useNavigate();
     const location = useLocation();
 
-    const opcionesSecretaria = [
-        { label: "Dashboard", value: "dashboard", icon: "icon-[heroicons--squares-2x2]", path: "/" },
-        { label: "Materias", value: "materias", icon: "icon-[heroicons--book-open]", path: "/materias" },
-        { label: "Alumnos", value: "alumnos", icon: "icon-[heroicons--users]", path: "/alumnos" },
-        { label: "Inscripciones", value: "inscripciones", icon: "icon-[heroicons--clipboard-document-list]", path: "/inscripciones" },
-        { label: "Facturas", value: "facturas", icon: "icon-[heroicons--document-text]", path: "/facturas" },
-        { label: "Conceptos", value: "conceptos", icon: "icon-[heroicons--tag]", path: "/conceptos" },
-    ];
+    const opcionesPorRol = {
+        SECRETARIA: [
+            { label: "Dashboard", value: "dashboard", icon: "icon-[heroicons--squares-2x2]", path: "/" },
+            { label: "Materias", value: "materias", icon: "icon-[heroicons--book-open]", path: "/materias" },
+            { label: "Alumnos", value: "alumnos", icon: "icon-[heroicons--users]", path: "/alumnos" },
+            { label: "Inscripciones", value: "inscripciones", icon: "icon-[heroicons--clipboard-document-list]", path: "/inscripciones" },
+            { label: "Facturas", value: "facturas", icon: "icon-[heroicons--document-text]", path: "/facturas" },
+            { label: "Conceptos", value: "conceptos", icon: "icon-[heroicons--tag]", path: "/conceptos" },
+        ],
 
-    const opcionesProfesor = [
-        { label: "Dashboard", value: "dashboard", icon: "icon-[heroicons--squares-2x2]", path: "/profesor/dashboard" },
-        { label: "Materias", value: "materias", icon: "icon-[heroicons--book-open]", path: "/materias/mis-materias" },
-        { label: "Exámenes", value: "examenes", icon: "icon-[heroicons--clipboard-document-check]", path: "/materias/examenes" }
-    ];
+        PROFESOR: [
+            { label: "Dashboard", value: "dashboard", icon: "icon-[heroicons--squares-2x2]", path: "/profesor/dashboard" },
+            { label: "Materias", value: "materias", icon: "icon-[heroicons--book-open]", path: "/materias/mis-materias" },
+            { label: "Exámenes", value: "examenes", icon: "icon-[heroicons--clipboard-document-check]", path: "/materias/examenes" }
+        ]
+    }
 
-    const opcions = role === "profesor" ? opcionesProfesor : opcionesSecretaria;
+    const opciones = opcionesPorRol[role] || [];
 
     const isSelected = (optionPath) => {
         const currentPath = location.pathname;
-        const matches = currentPath === optionPath || (optionPath !== "/" && currentPath.startsWith(optionPath));
-        if (matches) {
-            return 'border-l-4 border-sm border-(--btnColor-primary) text-(--btnColor-primary) bg-(--btnColor-sidebar-hover)';
-        }
-        return 'hover:bg-(--btnColor-sidebar-hover) hover:text-(--textColor)';
+        return currentPath === optionPath || (optionPath !== "/" && currentPath.startsWith(optionPath));
+    };
+
+    const handleLogout = () => {
+        authService.logout();
+        navigate("/login");
     };
 
     return (
-        <aside className="h-screen w-60 flex flex-col bg-(--bgColor-main) border-r-2 border-gray-300">
-            <div className="flex flex-inline border-b-2 border-gray-300 my-8 pb-8 px-4">
+        <aside className="h-screen w-72 flex flex-col bg-(--bgColor-main) border-r-2 border-gray-300">
+            <div className="flex border-b-2 border-gray-300 my-8 pb-8 px-4 items-center gap-3">
                 <img src={imgLogo} className="max-h-20 object-contain" alt="Logo" />
                 <div className="flex flex-col my-auto ml-2">
                     <h1 className="text-(--btnColor-primary) text-[25px]">CursilloPy</h1>
-                    <label className="text-gray-400 capitalize">{role}</label>
+                    <label className="text-gray-400 capitalize">{role.toLowerCase()}</label>
                 </div>
             </div>
 
             <nav className="ml-0.5">
                 <ul>
-                    {opcions.map((option) => (
-                        <li
-                            key={option.value}
-                            className={`flex items-center p-3 cursor-pointer transition-all duration-200 ${isSelected(option.path)}`}
-                            onClick={() => navigate(option.path)}
-                        >
-                            <i className={`${option.icon} text-2xl text-slate-700 mr-3`}></i>
-                            <span className="w-full h-full text-sm">{option.label}</span>
-                        </li>
-                    ))}
+                    {opciones.map((option) => {
+                        const active = isSelected(option.path);
+                        return (
+                            <li
+                                key={option.value}
+                                className={`flex items-center p-3 cursor-pointer transition-all duration-200 
+                                    ${active ? 'border-l-4 border-sm border-(--btnColor-primary) text-(--btnColor-primary) bg-(--btnColor-sidebar-hover)'
+                                        : 'hover:bg-(--btnColor-sidebar-hover) hover:text-(--textColor)'}`}
+                                onClick={() => navigate(option.path)}
+                            >
+                                {/* 5. Ahora el ícono también se pinta con el color primario si está activo */}
+                                <i className={`${option.icon} text-2xl mr-3 ${active ? 'text-(--btnColor-primary)' : 'text-slate-700'}`}></i>
+                                <span className="w-full h-full text-sm">{option.label}</span>
+                            </li>
+                        );
+                    })}
                 </ul>
             </nav>
 
-            {/* Botones inferiores (Ajustes y Salir) */}
             <div className="w-full mt-auto flex flex-col border-t-2 border-gray-300">
-                {role === "profesor" && (
+                {role === "PROFESOR" && (
                     <button
                         type="button"
                         className="w-full flex items-center p-3 cursor-pointer text-sm hover:bg-(--btnColor-sidebar-hover) hover:text-(--textColor)"
@@ -71,7 +80,7 @@ export const Sidebar = ({ role = "secretaria" }) => {
                 <button
                     type="button"
                     className="w-full flex items-center p-3 cursor-pointer text-sm hover:bg-(--btnColor-sidebar-hover) hover:text-(--textColor)"
-                    onClick={() => navigate("/login")}
+                    onClick={handleLogout}
                 >
                     <i className="icon-[heroicons--arrow-left-start-on-rectangle] text-2xl text-slate-700 mr-3"></i>
                     Salir
