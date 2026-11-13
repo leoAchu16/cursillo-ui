@@ -28,11 +28,38 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response && (error.response.status === 401 || error.response.status === 403)) {
-      console.warn('Sesión expirada o sin permisos. Redirigiendo a login...');
-      localStorage.removeItem('token');
-      window.location.href = '/login';
+    const status = error.response?.status;
+
+    // Si es 403 (Forbidden): El usuario SÍ está autenticado pero no tiene permisos para este recurso específico.
+    // NUNCA se debe borrar el token ni redirigir a login en un 403.
+    if (status === 403) {
+      console.warn('Acceso denegado a este endpoint (403 Forbidden).');
+      return Promise.reject(error);
     }
+
+    // Si es 401 (Unauthorized): Verificar si el token realmente expiró antes de desloguear
+    if (status === 401) {
+      const token = localStorage.getItem('token');
+      let expired = true;
+      if (token) {
+        try {
+          const payload = jwtDecode(token);
+          // Si el token aún no ha alcanzado su timestamp de expiración (exp)
+          if (payload.exp && Date.now() < payload.exp * 1000) {
+            expired = false;
+          }
+        } catch {
+          expired = true;
+        }
+      }
+
+      if (expired && window.location.pathname !== '/login') {
+        console.warn('Sesión expirada (401 Unauthorized). Redirigiendo a login...');
+        localStorage.removeItem('token');
+        window.location.href = '/login';
+      }
+    }
+
     return Promise.reject(error);
   }
 );
