@@ -6,8 +6,6 @@ import {
     eliminarConcepto,
     mensajeDeError,
 } from './services/facturacionService';
-import { JwtTokenModal } from '../../components/JwtTokenModal';
-import { BotonToken } from '../../components/BotonToken';
 import { SearchInput } from '../../components/SearchInput';
 import { Modal } from '../../components/Modal';
 import { Table } from '../../components/Table';
@@ -43,7 +41,6 @@ export const ConceptosPage = () => {
     const [formulario, setFormulario] = useState(null); // null = modal cerrado
     const [errorForm, setErrorForm] = useState(null);
     const [guardando, setGuardando] = useState(false);
-    const [tokenModalAbierto, setTokenModalAbierto] = useState(false);
 
     const mostrarAviso = (tipo, texto) => {
         setAviso({ tipo, texto });
@@ -190,7 +187,6 @@ export const ConceptosPage = () => {
                     placeholder="Buscar por nombre..."
                 />
                 <div className="flex items-center gap-3 shrink-0">
-                    <BotonToken onClick={() => setTokenModalAbierto(true)} />
                     <button
                         type="button"
                         onClick={abrirNuevo}
@@ -276,12 +272,6 @@ export const ConceptosPage = () => {
                     </form>
                 )}
             </Modal>
-
-            <JwtTokenModal
-                isOpen={tokenModalAbierto}
-                onClose={() => setTokenModalAbierto(false)}
-                onTokenSaved={() => cargar()}
-            />
         </div>
     );
 };

@@ -10,8 +10,6 @@ import {
 import { obtenerAlumnoPorId } from './services/alumnosService';
 import { obtenerSecretariaPorId } from './services/secretariasService';
 import { listarAlumnos, listarInscripcionesPendientes } from './services/opcionesFacturaService';
-import { JwtTokenModal } from '../../components/JwtTokenModal';
-import { BotonToken } from '../../components/BotonToken';
 import { SearchInput } from '../../components/SearchInput';
 import { Table } from '../../components/Table';
 import { FacturaDetalleModal } from '../../components/FacturaDetalleModal';
@@ -88,7 +86,6 @@ export const FacturasPage = () => {
     const [guardando, setGuardando] = useState(false);
 
     const [facturaVista, setFacturaVista] = useState(null);
-    const [tokenModalAbierto, setTokenModalAbierto] = useState(false);
 
     // nombres de alumnos ya consultados (evita repetir la misma llamada)
     const cacheAlumnos = useRef({});
@@ -401,7 +398,6 @@ export const FacturasPage = () => {
                     </select>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
-                    <BotonToken onClick={() => setTokenModalAbierto(true)} />
                     <button
                         type="button"
                         onClick={abrirNueva}
@@ -459,12 +455,6 @@ export const FacturasPage = () => {
                 onAgregarLinea={() => setLineas((prev) => [...prev, lineaVacia()])}
                 onQuitarLinea={(i) => setLineas((prev) => prev.filter((_, idx) => idx !== i))}
                 onClose={() => setFormulario(null)}
-            />
-
-            <JwtTokenModal
-                isOpen={tokenModalAbierto}
-                onClose={() => setTokenModalAbierto(false)}
-                onTokenSaved={() => { cargar(); cargarConceptos(); }}
             />
         </div>
     );
