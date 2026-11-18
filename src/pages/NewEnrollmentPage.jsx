@@ -4,7 +4,8 @@ import { SegmentedControl } from "../components/SegmentedControl";
 import { Combobox } from "../components/Combobox";
 import { Table } from "../components/Table";
 import { listarMaterias, listarExamenesPorMateria } from "../services/notasService";
-import { crearInscripcion, listarAlumnos } from "../services/inscripcionesService";
+import { crearInscripcion } from "../services/inscripcionesService";
+import { listarAlumnos } from "../services/usuariosService";
 import api from "../services/api";
 
 export const NewEnrollmentPage = () => {
@@ -479,7 +480,7 @@ export const NewEnrollmentPage = () => {
                         <button
                             type="button"
                             onClick={handleAddItem}
-                            className="flex items-center bg-blue-600 text-white rounded-xl p-2 px-5 shadow-sm hover:bg-blue-700 transition-colors cursor-pointer text-sm font-semibold"
+                            className="flex items-center bg-(--btnColor-secondary) text-white rounded-xl p-2 px-5 shadow-sm hover:bg-blue-700 transition-colors cursor-pointer text-sm font-semibold"
                         >
                             <i className="icon-[heroicons--plus] text-white mr-1.5 text-base"></i>
                             Agregar a la lista
@@ -519,8 +520,8 @@ export const NewEnrollmentPage = () => {
                         disabled={submitting || itemsInscripcion.length === 0}
                         onClick={handleSubmitInscripcion}
                         className={`flex items-center px-6 py-2 rounded-xl text-white font-semibold text-sm shadow-md transition-all ${submitting || itemsInscripcion.length === 0
-                                ? "bg-slate-300 cursor-not-allowed shadow-none"
-                                : "bg-green-600 hover:bg-green-700 cursor-pointer"
+                            ? "bg-(--btnColor-primary) cursor-not-allowed shadow-none"
+                            : "bg-(--btnColor-primary) hover:bg-(--btnColor-primary-hover) cursor-pointer"
                             }`}
                     >
                         {submitting ? "Guardando..." : "Confirmar Inscripción"}
