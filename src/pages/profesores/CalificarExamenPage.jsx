@@ -7,9 +7,9 @@ import {
     buscarNotasPorExamen,
     listarExamenesPorMateria,
     obtenerMateria,
-    listarInscripcionesPorMateria,
-    listarAlumnos
+    listarInscripcionesPorMateria
 } from '../../services/notasService';
+import { listarAlumnos } from '../../services/usuariosService';
 
 export const CalificarExamenPage = () => {
     const navigate = useNavigate();
