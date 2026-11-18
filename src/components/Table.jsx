@@ -6,19 +6,25 @@
  * 
  * @param {[]} headers -> Array de strings con los encabezados de la tabla
  * @param {[]} data -> Array de arrays con los datos de la tabla
+ * @param {boolean} loading -> Si es true, muestra "Cargando..." en lugar de las filas o del mensaje de vacío
+ * @param {string} emptyMessage -> Texto a mostrar cuando no hay filas
  * @returns <table>
  */
 
-export const Table = ({ 
-    headers, 
-    data = [], 
-    actions, 
-    currentPage = 1, 
-    totalPages = 1, 
+import { Spinner } from "./Spinner";
+
+export const Table = ({
+    headers,
+    data = [],
+    actions,
+    currentPage = 1,
+    totalPages = 1,
     totalElements,
-    onPrevPage, 
+    onPrevPage,
     onNextPage,
-    showPagination = true 
+    showPagination = true,
+    loading = false,
+    emptyMessage = "No se encontraron registros"
 }) => {
 
     const iconActions = {
@@ -57,10 +63,19 @@ export const Table = ({
                 </tr>
             </thead>
             <tbody>
-                {data.length === 0 ? (
+                {loading ? (
                     <tr>
                         <td colSpan={headers.length} className="text-center py-8 text-gray-500 font-medium">
-                            No se encontraron registros
+                            <div className="flex items-center justify-center gap-2">
+                                <Spinner className="h-4 w-4 text-(--btnColor-primary)" />
+                                Cargando...
+                            </div>
+                        </td>
+                    </tr>
+                ) : data.length === 0 ? (
+                    <tr>
+                        <td colSpan={headers.length} className="text-center py-8 text-gray-500 font-medium">
+                            {emptyMessage}
                         </td>
                     </tr>
                 ) : (
@@ -78,7 +93,7 @@ export const Table = ({
                                             <button
                                                 key={actionIndex}
                                                 type="button"
-                                                onClick={() => action.onClick(item)}
+                                                onClick={() => action.onClick(item, index)}
                                                 className="text-slate-700 hover:text-(--btnColor-primary) transition-colors cursor-pointer"
                                                 title={action.title || action.type}
                                             >
