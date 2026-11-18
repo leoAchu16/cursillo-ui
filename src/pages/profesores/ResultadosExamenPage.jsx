@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { SearchInput } from '../../components/SearchInput';
-import { buscarNotasPorExamen, obtenerExamen, listarAlumnos } from '../../services/notasService';
+import { buscarNotasPorExamen, obtenerExamen } from '../../services/notasService';
+import { listarAlumnos } from '../../services/usuariosService';
 
 export const ResultadosExamenPage = () => {
     const navigate = useNavigate();
