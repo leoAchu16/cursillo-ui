@@ -3,7 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { SearchInput } from "../../components/SearchInput";
 import { Combobox } from "../../components/Combobox";
 import { Table } from "../../components/Table";
-import { listarInscripcionesPorMateria, obtenerMateria, listarAlumnos } from '../../services/notasService';
+import { listarInscripcionesPorMateria, obtenerMateria } from '../../services/notasService';
+import { listarAlumnos } from '../../services/usuariosService';
 
 export const DetalleMateriaPage = () => {
     const { materiaId } = useParams();
