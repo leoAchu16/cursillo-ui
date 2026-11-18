@@ -3,7 +3,8 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { SearchInput } from "../components/SearchInput";
 import { Table } from "../components/Table";
 import { Modal } from "../components/Modal";
-import { listarInscripciones, eliminarInscripcion, listarAlumnos } from "../services/inscripcionesService";
+import { listarInscripciones, eliminarInscripcion } from "../services/inscripcionesService";
+import { listarAlumnos } from "../services/usuariosService";
 
 export const EnrollmentsPage = () => {
     const navigate = useNavigate();
