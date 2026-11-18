@@ -64,6 +64,15 @@ api.interceptors.response.use(
   }
 );
 
+/**
+ * Extrae el mensaje de error que envía el backend, o devuelve uno genérico.
+ * Cada microservicio usa una clave distinta:
+ *  - ms-auth:  { status, error, message }
+ *  - ms-notas: { status, error, mensaje }
+ */
+export const mensajeDeError = (err, generico) =>
+  err?.response?.data?.message || err?.response?.data?.mensaje || generico;
+
 // Helpers para token
 export const getStoredToken = () => {
   return localStorage.getItem('token');
