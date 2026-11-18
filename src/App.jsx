@@ -1,5 +1,7 @@
 import './App.css';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'sonner';
+
 import { Layout } from './components/Layout';
 import { SubjectsPage } from './pages/SubjectsPage';
 import { LoginPage } from './pages/LoginPage';
@@ -24,15 +26,20 @@ import { MisExamenesPage } from './pages/alumnos/MisExamenesPage';
 function App() {
   return (
     <Router>
+      <Toaster position="bottom-right" richColors closeButton />
       <Routes>
         <Route path='/' element={<Layout />}>
+
+          {/* Rutas del Módulo de Secretaría */}
           <Route path='/' element={<DashboardPageSecretary />} />
           <Route path='materias' element={<SubjectsPage />} />
           <Route path='inscripciones' element={<EnrollmentsPage />} />
           <Route path='alumnos' element={<StudentsPage />} />
           <Route path='facturacion' element={<InvoicePage />} />
           <Route path='inscripciones/nueva' element={<NewEnrollmentPage />} />
-          
+          <Route path='facturas' element={<FacturasPage />} />
+          <Route path='conceptos' element={<ConceptosPage />} />
+
           {/* Rutas del Módulo de Profesor */}
           <Route path='profesor/dashboard' element={<DashboardPageTeacher />} />
           <Route path='materias/mis-materias' element={<MisMateriasPage />} />
@@ -48,8 +55,7 @@ function App() {
           <Route path='alumno/mis-examenes' element={<MisExamenesPage />} />
 
 
-          <Route path='facturas' element={<FacturasPage />} />
-          <Route path='conceptos' element={<ConceptosPage />} />
+
         </Route>
 
         <Route path='/login' element={<LoginPage />} />
