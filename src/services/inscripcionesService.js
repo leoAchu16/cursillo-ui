@@ -33,25 +33,10 @@ export const eliminarInscripcion = async (id) => {
   return response.data;
 };
 
-/** ============================================================================
- *  SERVICIO DE ALUMNOS
- *  ============================================================================ */
-
-export const listarAlumnos = async () => {
-  try {
-    const response = await api.get('/usuarios', { params: { rol: 'ALUMNO' } });
-    return response.data?.content || [];
-  } catch (error) {
-    console.error("Error al cargar alumnos:", error);
-    return [];
-  }
-};
-
 export default {
   listarInscripciones,
   obtenerInscripcion,
   crearInscripcion,
   actualizarInscripcion,
   eliminarInscripcion,
-  listarAlumnos,
 };
