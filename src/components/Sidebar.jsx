@@ -90,7 +90,7 @@ export const Sidebar = ({ role }) => {
                     onClick={handleLogout}
                 >
                     <i className="icon-[heroicons--arrow-left-start-on-rectangle] text-2xl text-slate-700 mr-3"></i>
-                    Salir
+                    Cerrar sesión
                 </button>
             </div>
         </aside>
