@@ -30,6 +30,25 @@ export const listarMaterias = async () => {
   return response.data;
 };
 
+/**
+ * Lista materias activas paginadas. Devuelve { content, totalPages, totalElements }.
+ * Sin `nombre` usa GET /materias; con `nombre` usa GET /materias/buscar (contiene, sin distinguir mayúsculas).
+ * Acepta los dos formatos de Page de Spring: totales en la raíz o dentro de `page` (VIA_DTO).
+ */
+export const listarMateriasPaginado = async ({ page = 0, size = 20, nombre = '' } = {}) => {
+  const filtro = nombre?.trim() || '';
+  const url = filtro ? '/materias/buscar' : '/materias';
+  const params = filtro ? { page, size, nombre: filtro } : { page, size };
+
+  const { data } = await api.get(url, { params });
+  const content = Array.isArray(data?.content) ? data.content : [];
+  return {
+    content,
+    totalPages: data?.page?.totalPages ?? data?.totalPages ?? 1,
+    totalElements: data?.page?.totalElements ?? data?.totalElements ?? content.length,
+  };
+};
+
 export const obtenerMateria = async (idMateria) => {
   const response = await api.get(`/materias/${idMateria}`);
   return response.data;
@@ -39,6 +58,21 @@ export const obtenerMateria = async (idMateria) => {
 export const crearMateria = async (materiaData) => {
   const response = await api.post('/materias', materiaData);
   return response.data;
+};
+
+/**
+ * Actualiza una materia (PUT /materias/{id}). Solo SECRETARIA.
+ * El backend copia el DTO con MapStruct: los campos que no se envían quedan en null,
+ * así que siempre mandar { nombreMateria, idProfesor, dia, descripcion } completos.
+ */
+export const actualizarMateria = async (idMateria, materiaData) => {
+  const response = await api.put(`/materias/${idMateria}`, materiaData);
+  return response.data;
+};
+
+// Borrado lógico (DELETE /materias/{id}). Solo SECRETARIA.
+export const eliminarMateria = async (idMateria) => {
+  await api.delete(`/materias/${idMateria}`);
 };
 
 /**
@@ -120,23 +154,4 @@ export const listarInscripcionesPorMateria = async (idMateria) => {
 
 
 
-export const listarProfesores = async () => {
-  try {
-    const response = await api.get('/usuarios', { params: { rol: 'PROFESOR' } });
-    return response.data?.content || [];
-  } catch (error) {
-    console.warn("No se pudieron cargar los profesores:", error);
-    return [];
-  }
-};
-
-
-export const listarAlumnos = async () => {
-  try {
-    const response = await api.get('/usuarios', { params: { rol: 'ALUMNO' } });
-    return response.data?.content || [];
-  } catch (error) {
-    console.error("Error al cargar alumnos:", error);
-    return [];
-  }
-};
+// listarAlumnos y listarProfesores viven en usuariosService (consultan /usuarios)
