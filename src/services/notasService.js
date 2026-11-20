@@ -62,6 +62,11 @@ export const crearExamen = async (datosExamen) => {
   return response.data;
 };
 
+export const actualizarExamen = async (idExamen, datosExamen) => {
+  const response = await api.put(`/examenes/${idExamen}`, datosExamen);
+  return response.data;
+};
+
 /**
  * ==========================================
  * SERVICIOS DE NOTAS / CALIFICACIONES
@@ -99,21 +104,40 @@ export const actualizarNota = async (id, datos) => {
 
 export const listarInscripcionesPorMateria = async (idMateria) => {
   try {
-    const response = await api.get(`/inscripciones`);
+    const response = await api.get(`/inscripciones`, { params: { size: 1000 } });
     const todasLasInscripciones = response.data.content || response.data || [];
 
-    // Filtramos buscando si AL MENOS UN detalle tiene el idMateria que buscamos
+    // Filtramos buscando inscripciones a esta materia
     const filtradas = todasLasInscripciones.filter(inscripcion => {
-      // Verificamos que tenga detalles y buscamos dentro del array
       if (!inscripcion.detallesInscripcion) return false;
-      return inscripcion.detallesInscripcion.some(
-        detalle => detalle.idMateria === Number(idMateria)
+      return inscripcion.detallesInscripcion.some(detalle =>
+        detalle.idMateria && Number(detalle.idMateria) === Number(idMateria)
       );
     });
 
     return filtradas;
   } catch (error) {
     console.warn(`Error al filtrar inscripciones por materia:`, error?.message);
+    return [];
+  }
+};
+
+export const listarInscripcionesPorExamen = async (idExamen) => {
+  try {
+    const response = await api.get(`/inscripciones`, { params: { size: 1000 } });
+    const todasLasInscripciones = response.data.content || response.data || [];
+
+    // Filtramos buscando inscripciones a este examen específico
+    const filtradas = todasLasInscripciones.filter(inscripcion => {
+      if (!inscripcion.detallesInscripcion) return false;
+      return inscripcion.detallesInscripcion.some(detalle =>
+        detalle.idExamen && Number(detalle.idExamen) === Number(idExamen)
+      );
+    });
+
+    return filtradas;
+  } catch (error) {
+    console.warn(`Error al filtrar inscripciones por examen:`, error?.message);
     return [];
   }
 };

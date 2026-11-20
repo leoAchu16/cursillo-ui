@@ -128,8 +128,16 @@ export const MisExamenesPage = () => {
     const formatearFecha = (fecha) => {
         if (!fecha) return '-';
         try {
-            const d = new Date(fecha);
-            return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getFullYear()).slice(-2)}`;
+            const partes = String(fecha).split('-');
+            let d;
+            if (partes.length === 3) {
+                d = new Date(Number(partes[0]), Number(partes[1]) - 1, Number(partes[2]));
+            } else {
+                d = new Date(fecha);
+            }
+            const diasSemana = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+            const diaNombre = diasSemana[d.getDay()];
+            return `${diaNombre}, ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getFullYear()).slice(-2)}`;
         } catch {
             return fecha;
         }

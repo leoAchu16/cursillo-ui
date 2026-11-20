@@ -223,6 +223,13 @@ export const DashboardPageTeacher = () => {
                             const id = materia.id || materia.idMateria || idx + 1;
                             const nombre = materia.nombre || materia.nombreMateria || materia.titulo || 'Materia';
                             const anio = materia.anio || materia.anho || materia.periodo || new Date().getFullYear();
+                            const diaRaw = materia.dia || materia.dias || materia.horario;
+                            const mapaDias = {
+                                'LUNES': 'Lunes', 'MARTES': 'Martes', 'MIERCOLES': 'Miércoles',
+                                'MIÉRCOLES': 'Miércoles', 'JUEVES': 'Jueves', 'VIERNES': 'Viernes',
+                                'SABADO': 'Sábado', 'SÁBADO': 'Sábado', 'DOMINGO': 'Domingo'
+                            };
+                            const diaNombre = diaRaw ? (mapaDias[String(diaRaw).trim().toUpperCase()] || diaRaw) : null;
 
                             return (
                                 <div
@@ -235,6 +242,11 @@ export const DashboardPageTeacher = () => {
                                         <span className="text-[11px] text-gray-400 font-semibold">{anio}</span>
                                     </div>
                                     <p className="font-bold text-sm text-slate-800 uppercase tracking-wide truncate">{nombre}</p>
+                                    {diaNombre && (
+                                        <p className="text-xs text-gray-500 mt-1">
+                                            Día: <span className="font-semibold text-slate-700">{diaNombre}</span>
+                                        </p>
+                                    )}
                                     <p className="text-xs text-(--btnColor-primary) font-semibold mt-3 flex items-center">
                                         Ver detalles <i className="icon-[heroicons--arrow-right] ml-1 text-xs"></i>
                                     </p>

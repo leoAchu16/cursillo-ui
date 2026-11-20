@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Modal } from "../../components/Modal";
-import { listarExamenesPorMateria, obtenerMateria, crearExamen } from '../../services/notasService';
+import { listarExamenesPorMateria, obtenerMateria, crearExamen, actualizarExamen } from '../../services/notasService';
 
 export const GestionExamenesPage = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [examenEditando, setExamenEditando] = useState(null);
     const [examenes, setExamenes] = useState([]);
     const [materia, setMateria] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -50,7 +51,24 @@ export const GestionExamenesPage = () => {
         }
     }, [materiaId]);
 
-    const handleCrearExamen = async (e) => {
+    const handleAbrirCrearExamen = () => {
+        setExamenEditando(null);
+        setNuevoExamen({ nombre: '', fecha: '', hora: '', puntajeTotal: 20 });
+        setIsModalOpen(true);
+    };
+
+    const handleAbrirEditarExamen = (examen) => {
+        setExamenEditando(examen);
+        setNuevoExamen({
+            nombre: examen.titulo || examen.nombre || examen.nombreExamen || '',
+            fecha: examen.fecha || examen.fechaExamen || '',
+            hora: (examen.hora || examen.horario || '').slice(0, 5) || '08:00',
+            puntajeTotal: examen.totalPuntos || examen.puntajeTotal || 20
+        });
+        setIsModalOpen(true);
+    };
+
+    const handleGuardarExamen = async (e) => {
         e.preventDefault();
         if (!nuevoExamen.nombre.trim()) return;
 
@@ -74,36 +92,62 @@ export const GestionExamenesPage = () => {
                 console.warn("No se pudo extraer idProfesor del token JWT", error);
             }
 
-            // Si por algún motivo falla, usar el ID 6 que es tu Profesor Titular por defecto en api.js
             if (!idProfesorAutenticado || isNaN(idProfesorAutenticado)) {
                 idProfesorAutenticado = 6;
             }
 
             const payload = {
                 idMateria: Number(materiaId),
-                idProfesor: idProfesorAutenticado, // Usamos el ID real extraído del token
+                idProfesor: idProfesorAutenticado,
                 titulo: nuevoExamen.nombre,
                 fecha: nuevoExamen.fecha || new Date().toISOString().split('T')[0],
                 hora: horaFormateada,
                 totalPuntos: Number(nuevoExamen.puntajeTotal) || 20,
-                estado: "PENDIENTE"
+                estado: examenEditando ? (examenEditando.estado || "PENDIENTE") : "PENDIENTE"
             };
 
-            await crearExamen(payload);
+            if (examenEditando) {
+                const idExamen = Number(examenEditando.id || examenEditando.idExamen);
+                payload.idExamen = idExamen;
+                await actualizarExamen(idExamen, payload);
+            } else {
+                await crearExamen(payload);
+            }
 
             setIsModalOpen(false);
+            setExamenEditando(null);
             setNuevoExamen({ nombre: '', fecha: '', hora: '', puntajeTotal: 20 });
             await cargarDatos();
         } catch (err) {
-            console.error('Error al crear examen:', err);
+            console.error('Error al guardar examen:', err);
             const backendError = err.response?.data?.message || err.response?.data?.error || JSON.stringify(err.response?.data) || err.message;
-            alert(`No se pudo crear el examen.\nDetalle: ${backendError}`);
+            alert(`No se pudo guardar el examen.\nDetalle: ${backendError}`);
         } finally {
             setCreando(false);
         }
     };
 
     const nombreMateria = materia?.nombre || materia?.nombreMateria || `Materia #${materiaId}`;
+
+    const formatearFechaExamen = (fechaStr, horaStr) => {
+        if (!fechaStr) return 'Fecha no definida';
+        try {
+            const partes = String(fechaStr).split('-');
+            let d;
+            if (partes.length === 3) {
+                d = new Date(Number(partes[0]), Number(partes[1]) - 1, Number(partes[2]));
+            } else {
+                d = new Date(fechaStr);
+            }
+            const diasSemana = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+            const diaNombre = diasSemana[d.getDay()];
+            const fechaFormateada = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+            const horaCorta = horaStr ? horaStr.slice(0, 5) : '';
+            return `${diaNombre}, ${fechaFormateada}${horaCorta ? ` - ${horaCorta} hs` : ''}`;
+        } catch {
+            return `${fechaStr} ${horaStr ? `, ${horaStr}` : ''}`;
+        }
+    };
 
     return (
         <div className="container-page">
@@ -123,7 +167,7 @@ export const GestionExamenesPage = () => {
                 </div>
 
                 <div className="flex gap-3">
-                    <button className="btn-primary" onClick={() => setIsModalOpen(true)}>
+                    <button className="btn-primary" onClick={handleAbrirCrearExamen}>
                         <i className="icon-[heroicons--plus-circle] text-lg mr-2"></i>
                         Crear Nuevo Examen
                     </button>
@@ -181,7 +225,7 @@ export const GestionExamenesPage = () => {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {examenes.map((examen, idx) => {
                         const id = examen.id || examen.idExamen || idx + 1;
-                        const nombre = examen.titulo || examen.nombre || examen.nombreExamen || `Examen #${id}`;
+                        const nombre = examen.titulo || examen.nombre || examen.nombreExamen || 'Examen';
                         const fecha = examen.fecha || examen.fechaExamen || 'Fecha no definida';
                         const hora = examen.hora || examen.horario || '';
                         const estado = (examen.estado || (examen.calificado ? 'CALIFICADO' : 'PENDIENTE')).toUpperCase();
@@ -216,7 +260,7 @@ export const GestionExamenesPage = () => {
                                 <div className="flex flex-col gap-2 mt-4 text-xs text-gray-500">
                                     <span className="flex items-center">
                                         <i className="icon-[heroicons--calendar] mr-2 text-lg text-gray-400"></i>
-                                        {fecha} {hora && `, ${hora}`}
+                                        {formatearFechaExamen(fecha, hora)}
                                     </span>
                                     <span className="flex items-center">
                                         <i className="icon-[heroicons--academic-cap] mr-2 text-lg text-gray-400"></i>
@@ -229,15 +273,25 @@ export const GestionExamenesPage = () => {
                                         onClick={() => navigate(`/materias/examenes/${materiaId}/resultados/${id}`)}
                                         className="text-(--btnColor-primary) text-xs font-bold flex items-center hover:underline cursor-pointer"
                                     >
-                                        Ver Resultados <i className="icon-[heroicons--arrow-right] ml-1"></i>
+                                        Resultados <i className="icon-[heroicons--arrow-right] ml-1"></i>
                                     </button>
-                                    <button
-                                        onClick={() => navigate(`/materias/examenes/${materiaId}/calificar?idExamen=${id}`)}
-                                        className="text-blue-600 hover:text-blue-800 text-xs font-bold flex items-center hover:underline cursor-pointer"
-                                    >
-                                        <i className="icon-[heroicons--pencil-square] mr-1"></i>
-                                        Calificar
-                                    </button>
+                                    <div className="flex items-center gap-3">
+                                        <button
+                                            onClick={() => handleAbrirEditarExamen(examen)}
+                                            className="text-gray-500 hover:text-slate-800 text-xs font-bold flex items-center hover:underline cursor-pointer"
+                                            title="Editar información del examen y puntaje total"
+                                        >
+                                            <i className="icon-[heroicons--pencil] mr-1 text-sm"></i>
+                                            Editar
+                                        </button>
+                                        <button
+                                            onClick={() => navigate(`/materias/examenes/${materiaId}/calificar?idExamen=${id}`)}
+                                            className="text-blue-600 hover:text-blue-800 text-xs font-bold flex items-center hover:underline cursor-pointer"
+                                        >
+                                            <i className="icon-[heroicons--pencil-square] mr-1 text-sm"></i>
+                                            Calificar
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         );
@@ -245,9 +299,9 @@ export const GestionExamenesPage = () => {
                 </div>
             )}
 
-            {/* Modal para Crear Examen */}
-            <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Crear Nuevo Examen">
-                <form onSubmit={handleCrearExamen} className="p-6 flex flex-col gap-5">
+            {/* Modal para Crear / Editar Examen */}
+            <Modal isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setExamenEditando(null); }} title={examenEditando ? "Editar Examen" : "Crear Nuevo Examen"}>
+                <form onSubmit={handleGuardarExamen} className="p-6 flex flex-col gap-5">
                     <div>
                         <label className="text-xs text-gray-500">Nombre del Examen <span className="text-red-500">*</span></label>
                         <input
@@ -297,13 +351,13 @@ export const GestionExamenesPage = () => {
                     <div className="flex justify-end items-center gap-4 mt-6">
                         <button
                             type="button"
-                            onClick={() => setIsModalOpen(false)}
+                            onClick={() => { setIsModalOpen(false); setExamenEditando(null); }}
                             className="text-sm font-bold text-gray-500 hover:underline cursor-pointer"
                         >
                             Cancelar
                         </button>
                         <button type="submit" disabled={creando} className="btn-primary !px-5">
-                            {creando ? 'Creando...' : 'Crear Examen'}
+                            {creando ? 'Guardando...' : (examenEditando ? 'Guardar Cambios' : 'Crear Examen')}
                             <i className="icon-[heroicons--arrow-right] ml-2 text-lg"></i>
                         </button>
                     </div>

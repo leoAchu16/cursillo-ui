@@ -29,6 +29,23 @@ export const SeleccionMateriaExamenPage = () => {
         cargarMaterias();
     }, []);
 
+    const formatearDia = (dia) => {
+        if (!dia) return 'Días a convenir';
+        const mapaDias = {
+            'LUNES': 'Lunes',
+            'MARTES': 'Martes',
+            'MIERCOLES': 'Miércoles',
+            'MIÉRCOLES': 'Miércoles',
+            'JUEVES': 'Jueves',
+            'VIERNES': 'Viernes',
+            'SABADO': 'Sábado',
+            'SÁBADO': 'Sábado',
+            'DOMINGO': 'Domingo'
+        };
+        const key = String(dia).trim().toUpperCase();
+        return mapaDias[key] || dia;
+    };
+
     return (
         <div className="container-page">
             <div className="mb-6">
@@ -76,7 +93,7 @@ export const SeleccionMateriaExamenPage = () => {
                         const id = materia.id || materia.idMateria || index + 1;
                         const nombre = materia.nombre || materia.nombreMateria || materia.titulo || 'Materia';
                         const anio = materia.anio || materia.anho || materia.periodo || new Date().getFullYear();
-                        const dias = materia.dias || materia.horario || materia.schedule || 'Días a convenir';
+                        const dias = formatearDia(materia.dia || materia.dias || materia.horario || materia.schedule);
 
                         return (
                             <div

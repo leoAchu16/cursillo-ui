@@ -22,7 +22,7 @@ export const ResultadosExamenPage = () => {
                 listarAlumnos().catch(() => [])
             ]);
 
-            setExamen(exData);
+            setExamen(exData?.data || exData);
 
             // Crear mapa de alumnos globales
             const alumnosMap = {};
@@ -87,7 +87,7 @@ export const ResultadosExamenPage = () => {
         return nombre.includes(search) || email.includes(search);
     });
 
-    const nombreExamen = examen?.nombre || examen?.nombreExamen || `Examen #${examenId}`;
+    const nombreExamen = examen?.titulo || examen?.nombre || examen?.nombreExamen || examen?.descripcion || 'Examen';
 
     return (
         <div className="container-page">
@@ -185,7 +185,7 @@ export const ResultadosExamenPage = () => {
                                         const nombre = item.nombreResuelto;
                                         const email = item.emailResuelto;
                                         const puntos = item.puntosReales;
-                                        const totalPts = item.totalPuntos || examen?.puntajeTotal || 20;
+                                        const totalPts = examen?.totalPuntos || item.totalPuntos || examen?.puntajeTotal || 20;
                                         const nota = item.calificacion ?? (item.ausente ? '-' : Math.max(1, Math.round((puntos / totalPts) * 5)));
                                         const ausente = Boolean(item.ausente);
 
@@ -202,7 +202,6 @@ export const ResultadosExamenPage = () => {
                                                         </div>
                                                         <div>
                                                             <p className="font-bold text-slate-800 text-sm">{nombre}</p>
-                                                            <p className="text-xs text-gray-400">ID: {item.matResuelta}</p>
                                                         </div>
                                                     </div>
                                                 </td>

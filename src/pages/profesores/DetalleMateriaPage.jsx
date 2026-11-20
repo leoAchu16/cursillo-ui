@@ -111,7 +111,6 @@ export const DetalleMateriaPage = () => {
                 </div>
                 <div>
                     <p className="font-bold text-sm text-slate-800">{nombre}</p>
-                    <p className="text-xs text-gray-500">ID: {matricula}</p>
                 </div>
             </div>,
             email,

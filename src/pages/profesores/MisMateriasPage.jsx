@@ -40,6 +40,23 @@ export const MisMateriasPage = () => {
         cargarMaterias();
     }, []);
 
+    const formatearDia = (dia) => {
+        if (!dia) return 'Días a convenir';
+        const mapaDias = {
+            'LUNES': 'Lunes',
+            'MARTES': 'Martes',
+            'MIERCOLES': 'Miércoles',
+            'MIÉRCOLES': 'Miércoles',
+            'JUEVES': 'Jueves',
+            'VIERNES': 'Viernes',
+            'SABADO': 'Sábado',
+            'SÁBADO': 'Sábado',
+            'DOMINGO': 'Domingo'
+        };
+        const key = String(dia).trim().toUpperCase();
+        return mapaDias[key] || dia;
+    };
+
     const materiasFiltradas = materias.filter((m) => {
         const nombre = (m.nombre || m.nombreMateria || m.titulo || '').toLowerCase();
         return nombre.includes(busqueda.toLowerCase());
@@ -131,7 +148,7 @@ export const MisMateriasPage = () => {
                                 const id = materia.id || materia.idMateria || index + 1;
                                 const nombre = materia.nombre || materia.nombreMateria || materia.titulo || 'Materia';
                                 const anio = materia.anio || materia.anho || materia.periodo || new Date().getFullYear();
-                                const dias = materia.dias || materia.horario || materia.schedule || 'Días a convenir';
+                                const dias = formatearDia(materia.dia || materia.dias || materia.horario || materia.schedule);
 
                                 return (
                                     <div

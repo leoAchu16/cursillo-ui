@@ -28,11 +28,19 @@ export const DashboardPageAlumno = () => {
             inscripciones.forEach(inscripcion => {
                 if (inscripcion.detallesInscripcion) {
                     inscripcion.detallesInscripcion.forEach(detalle => {
+                        const diaRaw = detalle.dia || detalle.dias || detalle.horario;
+                        const mapaDias = {
+                            'LUNES': 'Lunes', 'MARTES': 'Martes', 'MIERCOLES': 'Miércoles',
+                            'MIÉRCOLES': 'Miércoles', 'JUEVES': 'Jueves', 'VIERNES': 'Viernes',
+                            'SABADO': 'Sábado', 'SÁBADO': 'Sábado', 'DOMINGO': 'Domingo'
+                        };
+                        const diaNombre = diaRaw ? (mapaDias[String(diaRaw).trim().toUpperCase()] || diaRaw) : 'Días a convenir';
+
                         materiasExtraidas.push({
                             id: detalle.idMateria || detalle.id,
                             nombre: detalle.nombreMateria || detalle.materia || 'Materia',
                             anio: inscripcion.anio || inscripcion.anho || new Date().getFullYear(),
-                            dias: detalle.dias || detalle.horario || 'Días a convenir',
+                            dias: diaNombre,
                             fechaInscripcion: inscripcion.fechaInscripcion || inscripcion.fecha || null,
                             idInscripcion: inscripcion.id || inscripcion.idInscripcion,
                         });
