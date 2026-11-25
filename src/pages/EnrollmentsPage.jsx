@@ -1,221 +1,245 @@
-import { useState, useEffect, useCallback } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useState, useEffect, useRef } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { toast } from "sonner";
 import { SearchInput } from "../components/SearchInput";
 import { Table } from "../components/Table";
 import { Modal } from "../components/Modal";
-import { listarInscripciones, eliminarInscripcion } from "../services/inscripcionesService";
-import { listarAlumnos } from "../services/usuariosService";
+import { ConfirmModal } from "../components/ConfirmModal";
+import { Spinner } from "../components/Spinner";
+import { listarInscripcionesPaginado, eliminarInscripcion } from "../services/inscripcionesService";
+import { listarAlumnosPaginado } from "../services/usuariosService";
+import { obtenerMateria, obtenerExamen } from "../services/notasService";
+import { mensajeDeError } from "../services/api";
+
+// Filas por página (= size enviado al backend), igual que en Alumnos y Materias
+const INSCRIPCIONES_POR_PAGINA = 8;
+
+// Se cargan todos los alumnos de una vez para traducir idAlumno -> nombre
+const MAX_ALUMNOS = 1000;
+
+// Valor a mostrar cuando un campo viene vacío
+const SIN_DATO = '—';
+
+const ESTADOS_PAGO = ['PENDIENTE', 'PAGADO'];
+
+const LABEL_CLASS = "block text-xs font-bold text-gray-600 tracking-wider uppercase mb-2";
+
+// Mismos colores que los badges de Table
+const BADGE_ESTADO = { PAGADO: 'badge badge-success', PENDIENTE: 'badge badge-warning' };
+const BADGE_TIPO = { MATERIA: 'badge badge-info', EXAMEN: 'badge badge-success' };
+
+/**
+ * "2026-11-17" -> "17/11/2026".
+ * Se arma a mano en vez de usar new Date(): new Date("2026-11-17") se interpreta
+ * como medianoche UTC y en Paraguay (UTC-3) se mostraría el día anterior.
+ */
+const formatearFecha = (fecha) => {
+    if (!fecha) return SIN_DATO;
+    const [anio, mes, dia] = String(fecha).slice(0, 10).split('-');
+    return anio && mes && dia ? `${dia}/${mes}/${anio}` : String(fecha);
+};
+
+const formatearMonto = (monto) =>
+    monto === undefined || monto === null ? SIN_DATO : `Gs. ${Number(monto).toLocaleString("es-PY")}`;
+
+// Clave para el diccionario de nombres de ítems del detalle
+const claveItem = (det) =>
+    det.tipoInscripcion === 'EXAMEN' ? `EXAMEN-${det.idExamen}` : `MATERIA-${det.idMateria}`;
+
+const nombrePorDefecto = (det) =>
+    det.tipoInscripcion === 'EXAMEN' ? `Examen #${det.idExamen}` : `Materia #${det.idMateria}`;
 
 export const EnrollmentsPage = () => {
     const navigate = useNavigate();
-    const location = useLocation();
+    const [searchParams] = useSearchParams();
 
-    // Estados de datos y paginación
+    // Datos y paginación
     const [inscripciones, setInscripciones] = useState([]);
-    const [page, setPage] = useState(0); // 0-indexed para Spring Data
-    const [size] = useState(10);
+    const [alumnos, setAlumnos] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
+    const [page, setPage] = useState(0); // 0-based, como lo espera Spring
     const [totalPages, setTotalPages] = useState(1);
     const [totalElements, setTotalElements] = useState(0);
-    const [nombreAlumno, setNombreAlumno] = useState("");
+    const [busqueda, setBusqueda] = useState("");   // lo que se escribe en el input
+    const [filtro, setFiltro] = useState("");       // lo que se manda al backend (con debounce)
+    // Con /inscripciones?estado=PENDIENTE se abre con ese filtro ya elegido
+    const [estado, setEstado] = useState(() =>
+        ESTADOS_PAGO.includes(searchParams.get("estado")) ? searchParams.get("estado") : "");
+    const [recarga, setRecarga] = useState(0);      // incrementarlo vuelve a pedir la página actual
 
-    // Estados de interfaz y feedback
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-    const [successMessage, setSuccessMessage] = useState(null);
+    // Modal de detalle
+    const [inscripcionVer, setInscripcionVer] = useState(null);
+    const [nombresItems, setNombresItems] = useState({});
+    const [cargandoNombres, setCargandoNombres] = useState(false);
+    const detalleRequestId = useRef(0); // descarta respuestas de un detalle que ya se cerró o cambió
 
-    // Capturar mensaje de éxito proveniente de navegación (ej. NewEnrollmentPage)
-    useEffect(() => {
-        if (location.state?.mensajeExito) {
-            setSuccessMessage(location.state.mensajeExito);
-            window.history.replaceState({}, document.title);
-        }
-    }, [location.state]);
+    // Modal de eliminación
+    const [inscripcionEliminar, setInscripcionEliminar] = useState(null);
+    const [eliminando, setEliminando] = useState(false);
 
-    // Modal de detalles
-    const [selectedInscripcion, setSelectedInscripcion] = useState(null);
-    const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
-
-    // Modal de confirmación de borrado
-    const [itemToDelete, setItemToDelete] = useState(null);
-    const [isDeleting, setIsDeleting] = useState(false);
-
-    // Encabezados de la tabla
     const headers = ['Alumno', 'Fecha', 'Total', 'Estado', 'Acciones'];
 
-    // Cargar inscripciones y cruzar con nombres de alumnos desde el backend
-    const cargarInscripciones = useCallback(async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            // Hacemos la petición de inscripciones y de alumnos en paralelo
-            const [data, alumnosData] = await Promise.all([
-                listarInscripciones(page, size, nombreAlumno),
-                listarAlumnos().catch(() => [])
-            ]);
+    // Alumnos: una sola vez al entrar, para mostrar el nombre de cada inscripción.
+    // Si fallan, la tabla se sigue mostrando con "Alumno #id".
+    useEffect(() => {
+        let ignore = false;
+        listarAlumnosPaginado({ page: 0, size: MAX_ALUMNOS })
+            .then((data) => { if (!ignore) setAlumnos(data.content); })
+            .catch((err) => {
+                if (ignore) return;
+                console.error("Error al cargar alumnos:", err);
+                toast.warning("No se pudieron cargar los nombres de los alumnos.");
+            });
+        return () => { ignore = true; };
+    }, []);
 
-            // Creamos un diccionario (mapa) de ID -> Nombre Completo del alumno
-            const alumnosMap = {};
-            const listaAlumnos = Array.isArray(alumnosData) ? alumnosData : alumnosData?.content || [];
-            listaAlumnos.forEach(alumno => {
-                const id = alumno.id || alumno.idUsuario || alumno.idAlumno;
-                const nombreCompleto = `${alumno.nombre || ''} ${alumno.apellido || ''}`.trim();
-                if (id) {
-                    alumnosMap[id] = nombreCompleto || `Alumno #${id}`;
+    // La búsqueda espera un momento antes de consultar, para no pedir en cada tecla
+    useEffect(() => {
+        const espera = setTimeout(() => {
+            setFiltro(busqueda);
+            setPage(0);
+        }, 400);
+        return () => clearTimeout(espera);
+    }, [busqueda]);
+
+    // Inscripciones: se vuelven a pedir al cambiar de página, de filtro o al forzar una recarga
+    useEffect(() => {
+        // Evita actualizar el estado con una respuesta vieja (cambio rápido de página,
+        // desmontaje del componente o doble ejecución de StrictMode)
+        let ignore = false;
+
+        const cargar = async () => {
+            setLoading(true);
+            setError(null);
+            try {
+                const data = await listarInscripcionesPaginado({ page, size: INSCRIPCIONES_POR_PAGINA, nombre: filtro, estado });
+                if (ignore) return;
+                setInscripciones(data.content);
+                setTotalPages(Math.max(1, data.totalPages));
+                setTotalElements(data.totalElements);
+            } catch (err) {
+                if (ignore) return;
+                console.error("Error al cargar inscripciones:", err);
+                const mensaje = err.response?.status === 403
+                    ? "No tenés permisos para ver las inscripciones"
+                    : "No se pudieron cargar las inscripciones";
+                setInscripciones([]);
+                setError(mensaje);
+                toast.error(mensaje);
+            } finally {
+                if (!ignore) setLoading(false);
+            }
+        };
+        cargar();
+
+        return () => { ignore = true; };
+    }, [page, filtro, estado, recarga]);
+
+    // Diccionario idUsuario -> nombre del alumno
+    const alumnosPorId = Object.fromEntries(alumnos.map(a => [a.idUsuario, a.nombre]));
+    const nombreAlumno = (idAlumno) => alumnosPorId[idAlumno] || `Alumno #${idAlumno ?? SIN_DATO}`;
+
+    // ---------------------------------- DETALLE ---------------------------------
+
+    // Abre el detalle y resuelve en paralelo los nombres de sus materias y exámenes.
+    // Si alguno falla, se muestra "Materia #id" / "Examen #id".
+    const abrirDetalle = async (inscripcion) => {
+        const requestId = ++detalleRequestId.current;
+        setInscripcionVer(inscripcion);
+        setNombresItems({});
+
+        const detalles = inscripcion.detallesInscripcion || [];
+        if (detalles.length === 0) return;
+
+        setCargandoNombres(true);
+        const resultados = await Promise.all(detalles.map(async (det) => {
+            try {
+                if (det.tipoInscripcion === 'EXAMEN' && det.idExamen) {
+                    const examen = await obtenerExamen(det.idExamen);
+                    return [claveItem(det), examen?.titulo];
                 }
-            });
-
-            // Extraer la lista base de inscripciones
-            let listaInscripciones = [];
-            if (data && Array.isArray(data.content)) {
-                listaInscripciones = data.content;
-                setTotalPages(data.totalPages || 1);
-                setTotalElements(data.totalElements ?? data.content.length);
-            } else if (Array.isArray(data)) {
-                listaInscripciones = data;
-                setTotalPages(1);
-                setTotalElements(data.length);
+                if (det.idMateria) {
+                    const materia = await obtenerMateria(det.idMateria);
+                    return [claveItem(det), materia?.nombreMateria];
+                }
+            } catch (err) {
+                console.warn("No se pudo obtener el nombre del ítem:", det, err);
             }
+            return null;
+        }));
 
-            // Enriquecemos cada inscripción con el nombre real del alumno encontrado en el mapa
-            const inscripcionesEnriquecidas = listaInscripciones.map(item => {
-                const idAlu = item.idAlumno || item.alumnoId || item.alumno?.id;
-                const nombreEncontrado = alumnosMap[idAlu];
+        if (detalleRequestId.current !== requestId) return;
+        setNombresItems(Object.fromEntries(resultados.filter(r => r && r[1])));
+        setCargandoNombres(false);
+    };
 
-                return {
-                    ...item,
-                    nombreAlumnoResuelto: nombreEncontrado || item.nombreAlumno || (item.alumno?.nombre ? `${item.alumno.nombre} ${item.alumno.apellido || ""}`.trim() : null) || `Alumno #${idAlu || 'N/D'}`
-                };
-            });
+    const cerrarDetalle = () => {
+        detalleRequestId.current++;
+        setInscripcionVer(null);
+        setCargandoNombres(false);
+    };
 
-            setInscripciones(inscripcionesEnriquecidas);
+    // --------------------------------- ELIMINAR ---------------------------------
 
-        } catch (err) {
-            console.error("Error al obtener inscripciones:", err);
-            const msg = err.response?.data?.message || err.message;
-            if (err.message === "Network Error") {
-                setError("No se pudo conectar con el Gateway (http://localhost:8084). Verifica que cursillo-api-gateway y cursillo-ms-inscripciones estén activos.");
+    const pedirEliminar = (inscripcion) => {
+        // El backend rechaza borrar inscripciones pagadas; avisamos antes de abrir el modal
+        if (inscripcion.estadoPago === 'PAGADO') {
+            toast.warning("No se puede eliminar una inscripción pagada.");
+            return;
+        }
+        setInscripcionEliminar(inscripcion);
+    };
+
+    const handleEliminar = async () => {
+        setEliminando(true);
+        try {
+            await eliminarInscripcion(inscripcionEliminar.idInscripcion);
+            toast.success("Inscripción eliminada correctamente.");
+            setInscripcionEliminar(null);
+            // Si era la última de la página, volvemos a la anterior
+            if (inscripciones.length === 1 && page > 0) {
+                setPage(p => p - 1);
             } else {
-                setError(msg || "Error al cargar las inscripciones.");
+                setRecarga(r => r + 1);
             }
-        } finally {
-            setLoading(false);
-        }
-    }, [page, size, nombreAlumno]);
-
-    // Debounce para la búsqueda de alumnos
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            cargarInscripciones();
-        }, 300);
-
-        return () => clearTimeout(timer);
-    }, [cargarInscripciones]);
-
-    // Limpiar mensaje de éxito después de 4 segundos
-    useEffect(() => {
-        if (successMessage) {
-            const t = setTimeout(() => setSuccessMessage(null), 4000);
-            return () => clearTimeout(t);
-        }
-    }, [successMessage]);
-
-    // Helpers de formateo
-    const formatFecha = (fecha) => {
-        if (!fecha) return "Sin fecha";
-        try {
-            const d = new Date(fecha);
-            if (isNaN(d.getTime())) return String(fecha);
-            return d.toLocaleDateString("es-PY", {
-                year: "numeric",
-                month: "2-digit",
-                day: "2-digit"
-            });
-        } catch {
-            return String(fecha);
-        }
-    };
-
-    const formatMonto = (monto) => {
-        if (monto === undefined || monto === null) return "Gs. 0";
-        return `Gs. ${Number(monto).toLocaleString("es-PY")}`;
-    };
-
-    // Confirmar y ejecutar eliminación
-    const handleConfirmDelete = async () => {
-        if (!itemToDelete) return;
-        setIsDeleting(true);
-        try {
-            const id = itemToDelete.id || itemToDelete.idInscripcion;
-            await eliminarInscripcion(id);
-            setSuccessMessage(`Inscripción #${id} eliminada con éxito.`);
-            setItemToDelete(null);
-            cargarInscripciones();
         } catch (err) {
             console.error("Error al eliminar inscripción:", err);
-            setError(err.response?.data?.message || err.message || "Error al eliminar la inscripción.");
+            const mensaje = err.response?.status === 403
+                ? "No tenés permisos para eliminar inscripciones."
+                : mensajeDeError(err, "No se pudo eliminar la inscripción.");
+            toast.error(mensaje);
         } finally {
-            setIsDeleting(false);
+            setEliminando(false);
         }
     };
 
-    // Construcción de filas para la tabla
-    const tablaData = inscripciones.map((item, index) => {
-        const nombre = item.nombreAlumnoResuelto;
-        const idAlumno = item.idAlumno || item.alumno?.id || "N/A";
-        const fecha = formatFecha(item.fechaInscripcion || item.fecha || item.fechaCreacion);
+    // ---------------------------------- TABLA -----------------------------------
 
-        const montoTotal =
-            item.montoTotal ??
-            item.total ??
-            item.costoTotal ??
-            (Array.isArray(item.detallesInscripcion)
-                ? item.detallesInscripcion.reduce((acc, d) => acc + (d.costo || d.monto || 0), 0)
-                : 0);
+    // Filas para la tabla: mismo orden que inscripciones, así el índice identifica a la inscripción
+    // InscripcionDTO: { idInscripcion, idAlumno, fechaInscripcion, total, estadoPago, detallesInscripcion[] }
+    const filas = inscripciones.map(i => [
+        nombreAlumno(i.idAlumno),
+        formatearFecha(i.fechaInscripcion),
+        formatearMonto(i.total),
+        i.estadoPago || SIN_DATO
+    ]);
 
-        const estado = (item.estado || item.estadoInscripcion || "PENDIENTE").toUpperCase();
-
-        const celdaAlumno = (
-            <div key={`alumno-${item.id || index}`} className="flex items-center gap-3 text-left">
-                <div className="w-8 h-8 rounded-full bg-teal-100 text-(--btnColor-primary) flex items-center justify-center font-bold text-xs uppercase overflow-hidden shrink-0">
-                    {String(nombre).slice(0, 2)}
-                </div>
-                <div>
-                    <p className="font-semibold text-sm text-slate-800">{nombre}</p>
-                    <p className="text-xs text-gray-500">ID Alumno: {idAlumno}</p>
-                </div>
-            </div>
-        );
-
-        const row = [celdaAlumno, fecha, formatMonto(montoTotal), estado];
-        row._raw = item;
-        row._nombre = nombre;
-        return row;
-    });
-
-    // Acciones disponibles por cada fila
     const tableActions = [
+        { type: 'view', title: 'Ver', onClick: (_, index) => abrirDetalle(inscripciones[index]) },
         {
-            type: "view",
-            title: "Ver detalles",
-            onClick: (fila) => {
-                const raw = fila._raw;
-                if (raw) {
-                    setSelectedInscripcion(raw);
-                    setIsDetailModalOpen(true);
-                }
+            type: 'invoice',
+            title: 'Facturar',
+            show: (_, index) => inscripciones[index].estadoPago === 'PENDIENTE',
+            onClick: (_, index) => {
+                const { idAlumno, idInscripcion } = inscripciones[index];
+                navigate(`/facturas/nueva?alumno=${idAlumno}&inscripcion=${idInscripcion}`);
             }
         },
-        {
-            type: "delete",
-            title: "Eliminar inscripción",
-            onClick: (fila) => {
-                const raw = fila._raw;
-                if (raw) {
-                    setItemToDelete(raw);
-                }
-            }
-        }
+        { type: 'delete', title: 'Eliminar', onClick: (_, index) => pedirEliminar(inscripciones[index]) }
     ];
+
+    const detalles = inscripcionVer?.detallesInscripcion || [];
 
     return (
         <div className="container-page">
@@ -224,222 +248,119 @@ export const EnrollmentsPage = () => {
                 <h2>Gestión de inscripciones de alumnos a materias o exámenes</h2>
             </div>
 
-            {/* Mensajes de feedback */}
-            {successMessage && (
-                <div className="bg-emerald-50 border border-emerald-300 text-emerald-800 px-4 py-3 rounded-xl flex items-center justify-between shadow-sm animate-in fade-in duration-200">
-                    <div className="flex items-center gap-2">
-                        <i className="icon-[heroicons--check-circle] text-emerald-600 text-xl"></i>
-                        <span className="text-sm font-medium">{successMessage}</span>
-                    </div>
-                    <button
-                        type="button"
-                        onClick={() => setSuccessMessage(null)}
-                        className="text-emerald-700 hover:text-emerald-900 cursor-pointer"
-                    >
-                        <i className="icon-[heroicons--x-mark] text-lg"></i>
-                    </button>
-                </div>
-            )}
-
-            {error && (
-                <div className="bg-rose-50 border border-rose-300 text-rose-800 px-4 py-3 rounded-xl flex items-center justify-between shadow-sm animate-in fade-in duration-200">
-                    <div className="flex items-center gap-2">
-                        <i className="icon-[heroicons--exclamation-circle] text-rose-600 text-xl"></i>
-                        <span className="text-sm">{error}</span>
-                    </div>
-                    <button
-                        type="button"
-                        onClick={cargarInscripciones}
-                        className="text-xs bg-rose-600 text-white px-2 py-1 rounded-md hover:bg-rose-700 font-semibold cursor-pointer"
-                    >
-                        Reintentar
-                    </button>
-                </div>
-            )}
-
-            {/* Barra superior de búsqueda y acción */}
             <div className="flex flex-row justify-between items-center gap-4">
-                <SearchInput
-                    placeholder="Buscar por alumno..."
-                    value={nombreAlumno}
-                    onChange={(e) => {
-                        setNombreAlumno(e.target.value);
-                        setPage(0);
-                    }}
-                />
-
-                <button
-                    onClick={() => navigate('/inscripciones/nueva')}
-                    className="flex items-center bg-(--btnColor-primary) text-(--textColor-secondary) rounded-xl p-2 px-4 shadow-md hover:bg-(--btnColor-primary-hover) transition-colors cursor-pointer shrink-0"
-                >
+                <div className="flex flex-row items-center gap-3">
+                    <SearchInput
+                        placeholder="Buscar por nombre del alumno"
+                        value={busqueda}
+                        onChange={(e) => setBusqueda(e.target.value)}
+                    />
+                    <select
+                        value={estado}
+                        onChange={(e) => { setEstado(e.target.value); setPage(0); }}
+                        aria-label="Filtrar por estado de pago"
+                        className="px-3 py-2.5 rounded-xl border border-(--borderColor-input) bg-white text-sm text-gray-700 focus:outline-none focus:border-(--btnColor-primary) shadow-sm"
+                    >
+                        <option value="">Todos los estados</option>
+                        {ESTADOS_PAGO.map((e) => <option key={e} value={e}>{e}</option>)}
+                    </select>
+                </div>
+                <button className="btn-primary cursor-pointer" onClick={() => navigate('/inscripciones/nueva')}>
                     <i className="icon-[heroicons--plus] text-white mr-2"></i>
                     Nueva inscripción
                 </button>
             </div>
 
-            {/* Indicador de carga sutil */}
-            {loading && (
-                <div className="flex items-center gap-2 text-sm text-(--btnColor-primary)">
-                    <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
-                    <span>Cargando inscripciones...</span>
-                </div>
-            )}
-
-            {/* Tabla con paginación integrada */}
             <Table
                 headers={headers}
-                data={tablaData}
+                data={filas}
                 actions={tableActions}
+                loading={loading}
+                emptyMessage={error || "No se encontraron inscripciones"}
                 currentPage={page + 1}
                 totalPages={totalPages}
                 totalElements={totalElements}
-                onPrevPage={() => setPage((prev) => Math.max(0, prev - 1))}
-                onNextPage={() => setPage((prev) => (prev + 1 < totalPages ? prev + 1 : prev))}
+                onPrevPage={() => setPage(p => Math.max(0, p - 1))}
+                onNextPage={() => setPage(p => Math.min(totalPages - 1, p + 1))}
             />
 
-            {/* Modal de Detalle de Inscripción */}
+            {/* ------------------------------ DETALLE ---------------------------- */}
             <Modal
-                isOpen={isDetailModalOpen}
-                onClose={() => {
-                    setIsDetailModalOpen(false);
-                    setSelectedInscripcion(null);
-                }}
-                title={`Detalles de Inscripción #${selectedInscripcion?.id || selectedInscripcion?.idInscripcion || ""}`}
+                isOpen={Boolean(inscripcionVer)}
+                onClose={cerrarDetalle}
+                title={`Inscripción #${inscripcionVer?.idInscripcion ?? ''}`}
+                size="md"
+                closeOnBackdrop
             >
-                {selectedInscripcion && (
-                    <div className="p-6 flex flex-col gap-4">
-                        <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200 text-sm">
-                            <div>
-                                <span className="text-gray-500 block text-xs">Alumno</span>
-                                <span className="font-semibold text-slate-800">
-                                    {selectedInscripcion.nombreAlumnoResuelto}
-                                </span>
-                            </div>
-                            <div>
-                                <span className="text-gray-500 block text-xs">ID Alumno</span>
-                                <span className="font-semibold text-slate-800">
-                                    {selectedInscripcion.idAlumno || "N/A"}
-                                </span>
-                            </div>
-                            <div>
-                                <span className="text-gray-500 block text-xs">Fecha</span>
-                                <span className="font-semibold text-slate-800">
-                                    {formatFecha(selectedInscripcion.fechaInscripcion || selectedInscripcion.fecha)}
-                                </span>
-                            </div>
-                            <div>
-                                <span className="text-gray-500 block text-xs">Estado</span>
-                                <span className="inline-block mt-0.5">
-                                    <span className="badge badge-success text-xs font-semibold">
-                                        {(selectedInscripcion.estado || "ACTIVO").toUpperCase()}
-                                    </span>
-                                </span>
-                            </div>
+                <div className="p-6 bg-(--bgColor-main) flex flex-col gap-5 text-sm">
+                    <dl className="grid grid-cols-2 gap-4">
+                        <div className="col-span-2">
+                            <dt className={LABEL_CLASS}>Alumno</dt>
+                            <dd className="text-slate-800">{inscripcionVer && nombreAlumno(inscripcionVer.idAlumno)}</dd>
                         </div>
-
                         <div>
-                            <h4 className="font-semibold text-sm text-slate-700 mb-2">
-                                Ítems Inscriptos ({selectedInscripcion.detallesInscripcion?.length || 0})
-                            </h4>
+                            <dt className={LABEL_CLASS}>Fecha</dt>
+                            <dd className="text-slate-800">{formatearFecha(inscripcionVer?.fechaInscripcion)}</dd>
+                        </div>
+                        <div>
+                            <dt className={LABEL_CLASS}>Estado</dt>
+                            <dd>
+                                {inscripcionVer?.estadoPago
+                                    ? <span className={BADGE_ESTADO[inscripcionVer.estadoPago] || 'badge'}>{inscripcionVer.estadoPago}</span>
+                                    : SIN_DATO}
+                            </dd>
+                        </div>
+                    </dl>
 
-                            {Array.isArray(selectedInscripcion.detallesInscripcion) &&
-                                selectedInscripcion.detallesInscripcion.length > 0 ? (
-                                <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden max-h-48 overflow-y-auto">
-                                    {selectedInscripcion.detallesInscripcion.map((det, idx) => (
-                                        <div key={idx} className="p-3 flex justify-between items-center text-sm bg-white">
-                                            <div className="flex items-center gap-2">
-                                                <span
-                                                    className={`badge text-xs ${det.tipo === "EXAMEN" ? "badge-warning" : "badge-info"
-                                                        }`}
-                                                >
-                                                    {det.tipo || (det.idExamen ? "EXAMEN" : "MATERIA")}
-                                                </span>
-                                                <span className="font-medium text-slate-800">
-                                                    {det.nombreMateria ||
-                                                        det.nombreExamen ||
-                                                        det.nombre ||
-                                                        (det.idMateria ? `Materia #${det.idMateria}` : `Examen #${det.idExamen}`)}
-                                                </span>
-                                            </div>
-                                            <span className="font-semibold text-slate-700">
-                                                {formatMonto(det.costo || det.monto || det.precio)}
+                    <div>
+                        <span className={`${LABEL_CLASS} flex items-center gap-2`}>
+                            Ítems inscriptos ({detalles.length})
+                            {cargandoNombres && <Spinner className="h-3.5 w-3.5 text-(--btnColor-primary)" />}
+                        </span>
+                        {detalles.length > 0 ? (
+                            <ul className="divide-y divide-slate-100 border border-(--borderColor-input) rounded-xl overflow-hidden max-h-48 overflow-y-auto bg-white">
+                                {detalles.map((det, idx) => (
+                                    <li key={det.idDetalleInscripcion ?? idx} className="p-3 flex justify-between items-center gap-3">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <span className={BADGE_TIPO[det.tipoInscripcion] || 'badge'}>
+                                                {det.tipoInscripcion || SIN_DATO}
+                                            </span>
+                                            <span className="text-slate-800 truncate">
+                                                {nombresItems[claveItem(det)] || nombrePorDefecto(det)}
                                             </span>
                                         </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <p className="text-xs text-gray-500 italic">No hay detalles desglosados disponibles.</p>
-                            )}
-                        </div>
-
-                        <div className="flex justify-between items-center pt-3 border-t border-slate-200">
-                            <span className="text-base font-bold text-slate-800">Total</span>
-                            <span className="text-lg font-extrabold text-(--btnColor-primary)">
-                                {formatMonto(
-                                    selectedInscripcion.montoTotal ??
-                                    selectedInscripcion.total ??
-                                    (Array.isArray(selectedInscripcion.detallesInscripcion)
-                                        ? selectedInscripcion.detallesInscripcion.reduce(
-                                            (acc, d) => acc + (d.costo || d.monto || 0),
-                                            0
-                                        )
-                                        : 0)
-                                )}
-                            </span>
-                        </div>
-
-                        <button
-                            type="button"
-                            onClick={() => setIsDetailModalOpen(false)}
-                            className="mt-2 w-full py-2 bg-slate-100 text-slate-700 rounded-xl font-semibold hover:bg-slate-200 transition-colors cursor-pointer"
-                        >
-                            Cerrar
-                        </button>
+                                        <span className="font-semibold text-slate-700 shrink-0">{formatearMonto(det.costo)}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        ) : (
+                            <p className="text-slate-500">La inscripción no tiene ítems.</p>
+                        )}
                     </div>
-                )}
-            </Modal>
 
-            {/* Modal de confirmación para eliminar */}
-            <Modal
-                isOpen={Boolean(itemToDelete)}
-                onClose={() => setItemToDelete(null)}
-                title="Confirmar eliminación"
-            >
-                <div className="p-6 flex flex-col gap-4">
-                    <p className="text-sm text-slate-700">
-                        ¿Estás seguro de que deseas eliminar la inscripción{" "}
-                        <span className="font-bold">
-                            #{itemToDelete?.id || itemToDelete?.idInscripcion}
-                        </span>
-                        {itemToDelete?.nombreAlumnoResuelto ? ` del alumno ${itemToDelete.nombreAlumnoResuelto}` : ""}?
-                    </p>
-                    <p className="text-xs text-rose-600 bg-rose-50 p-3 rounded-lg border border-rose-200">
-                        Esta acción realizará un borrado lógico en el sistema de inscripciones.
-                    </p>
-
-                    <div className="flex gap-3 justify-end mt-2">
-                        <button
-                            type="button"
-                            disabled={isDeleting}
-                            onClick={() => setItemToDelete(null)}
-                            className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl hover:bg-slate-100 font-medium transition-colors cursor-pointer"
-                        >
-                            Cancelar
-                        </button>
-                        <button
-                            type="button"
-                            disabled={isDeleting}
-                            onClick={handleConfirmDelete}
-                            className="px-4 py-2 bg-rose-600 text-white rounded-xl hover:bg-rose-700 font-semibold transition-colors flex items-center gap-2 cursor-pointer"
-                        >
-                            {isDeleting && (
-                                <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                            )}
-                            Eliminar
-                        </button>
+                    <div className="flex justify-between items-center pt-3 border-t border-(--borderColor-input)">
+                        <span className="font-bold text-slate-800">Total</span>
+                        <span className="text-lg font-extrabold text-(--btnColor-primary)">{formatearMonto(inscripcionVer?.total)}</span>
                     </div>
                 </div>
+                <div className="px-6 py-4 bg-white border-t border-(--borderColor-input) flex justify-end">
+                    <button type="button" className="btn-primary cursor-pointer" onClick={cerrarDetalle}>
+                        Cerrar
+                    </button>
+                </div>
             </Modal>
+
+            {/* ----------------------------- ELIMINAR ---------------------------- */}
+            <ConfirmModal
+                isOpen={Boolean(inscripcionEliminar)}
+                onClose={() => setInscripcionEliminar(null)}
+                onConfirm={handleEliminar}
+                loading={eliminando}
+                title="Eliminar inscripción"
+                message={<>¿Seguro que querés eliminar la inscripción <b>#{inscripcionEliminar?.idInscripcion}</b> de <b>{inscripcionEliminar && nombreAlumno(inscripcionEliminar.idAlumno)}</b>?</>}
+                warning="La inscripción dejará de aparecer en el listado."
+                confirmText="Eliminar"
+            />
         </div>
     );
 };
