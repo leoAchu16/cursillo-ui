@@ -86,6 +86,20 @@ export const listarExamenesPorMateria = async (idMateria) => {
   return response.data;
 };
 
+/**
+ * Lista exámenes activos paginados. Devuelve { content, totalPages, totalElements }.
+ * Acepta los dos formatos de Page de Spring: totales en la raíz o dentro de `page` (VIA_DTO).
+ */
+export const listarExamenesPaginado = async ({ page = 0, size = 20 } = {}) => {
+  const { data } = await api.get('/examenes', { params: { page, size } });
+  const content = Array.isArray(data?.content) ? data.content : [];
+  return {
+    content,
+    totalPages: data?.page?.totalPages ?? data?.totalPages ?? 1,
+    totalElements: data?.page?.totalElements ?? data?.totalElements ?? content.length,
+  };
+};
+
 export const obtenerExamen = async (idExamen) => {
   const response = await api.get(`/examenes/${idExamen}`);
   return response.data;
