@@ -1,71 +1,71 @@
 import { Modal } from './Modal';
-import { Table } from './Table';
 import { codigoFactura } from './codigoFactura';
 
-export const FacturaDetalleModal = ({ factura, onClose, guaranies, mapaConceptos }) => {
-    if (!factura) return null;
+const SIN_DATO = '—';
+const LABEL_CLASS = "block text-xs font-bold text-gray-600 tracking-wider uppercase mb-1";
 
-    const nombreConcepto = (id) => mapaConceptos[id]?.nombre ?? 'Concepto no disponible';
+export const FacturaDetalleModal = ({ factura, onClose, formatearFecha, formatearMonto }) => {
+    const detalles = factura?.detallesFactura ?? [];
 
-    const detalles = factura.detallesFactura ?? [];
-    const filasDetalle = detalles.map((d) => [
-        nombreConcepto(d.idConcepto),
-        d.cantidad,
-        guaranies.format(d.subtotal ?? 0),
-    ]);
+    // Las líneas se guardan sin descuento: el descuento de la inscripción es la diferencia con el total
+    const sumaLineas = detalles.reduce((acc, d) => acc + (d.subtotal ?? 0), 0);
+    const descuento = factura?.idInscripcion ? Math.max(0, sumaLineas - (factura.total ?? 0)) : 0;
 
     return (
         <Modal
             isOpen={Boolean(factura)}
             onClose={onClose}
-            title={`Detalle de Factura ${codigoFactura(factura.idFactura)}`}
+            title={`Factura ${factura ? codigoFactura(factura.idFactura) : ''}`}
+            size="md"
+            closeOnBackdrop
         >
-            <div className="p-6 flex flex-col gap-4 text-sm">
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-gray-50 p-4 rounded-xl text-xs">
-                    <div>
-                        <span className="text-gray-400 block font-semibold uppercase">Alumno</span>
-                        <span className="font-semibold text-slate-800">
-                            {factura.nombreAlumno ?? `N° ${factura.idAlumno}`}
-                        </span>
-                    </div>
-                    <div>
-                        <span className="text-gray-400 block font-semibold uppercase">Secretaría</span>
-                        <span className="font-medium text-slate-700">
-                            {factura.nombreSecretaria ?? '-'}
-                        </span>
-                    </div>
-                    <div>
-                        <span className="text-gray-400 block font-semibold uppercase">RUC</span>
-                        <span className="font-medium text-slate-700">{factura.ruc}</span>
-                    </div>
-                    <div>
-                        <span className="text-gray-400 block font-semibold uppercase">Método de pago</span>
-                        <span className="font-medium text-slate-700">{factura.metodoPago}</span>
-                    </div>
-                    <div>
-                        <span className="text-gray-400 block font-semibold uppercase">Fecha de emisión</span>
-                        <span className="font-medium text-slate-700">{factura.fechaEmision}</span>
-                    </div>
-                </div>
+            <div className="p-6 bg-(--bgColor-main) flex flex-col gap-5 text-sm">
+                <dl className="grid grid-cols-2 gap-4">
+                    {[
+                        ['Alumno', factura?.nombreAlumno],
+                        ['RUC', factura?.ruc],
+                        ['Método de pago', factura?.metodoPago],
+                        ['Fecha de emisión', formatearFecha(factura?.fechaEmision)],
+                        ['Emitida por', factura?.nombreSecretaria],
+                        ['Inscripción', factura?.idInscripcion && `#${factura.idInscripcion}`],
+                    ].map(([label, valor]) => (
+                        <div key={label}>
+                            <dt className={LABEL_CLASS}>{label}</dt>
+                            <dd className="text-slate-800">{valor || SIN_DATO}</dd>
+                        </div>
+                    ))}
+                </dl>
 
-                <div className="mt-2">
-                    <h4 className="text-xs font-bold text-gray-500 uppercase mb-2">Conceptos Cobrados</h4>
-                    {detalles.length === 0 ? (
-                        <p className="text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-lg p-3">
-                            Esta factura no tiene conceptos cargados.
-                        </p>
+                <div>
+                    <span className={LABEL_CLASS}>Conceptos cobrados ({detalles.length})</span>
+                    {detalles.length > 0 ? (
+                        <ul className="divide-y divide-slate-100 border border-(--borderColor-input) rounded-xl overflow-hidden max-h-40 overflow-y-auto bg-white">
+                            {detalles.map((d) => (
+                                <li key={d.idDetalleFactura} className="p-3 flex justify-between items-center gap-3">
+                                    <span className="text-slate-800 truncate">
+                                        {d.nombreConcepto || `Concepto #${d.idConcepto}`}
+                                        <span className="text-gray-500"> × {d.cantidad}</span>
+                                    </span>
+                                    <span className="font-semibold text-slate-700 shrink-0">{formatearMonto(d.subtotal)}</span>
+                                </li>
+                            ))}
+                        </ul>
                     ) : (
-                        <Table
-                            headers={['Concepto', 'Cantidad', 'Subtotal']}
-                            data={filasDetalle}
-                            showPagination={false}
-                        />
+                        <p className="text-slate-500">La factura no tiene conceptos cargados.</p>
                     )}
                 </div>
 
-                <div className="flex justify-between items-center pt-3 border-t border-gray-100">
-                    <span className="font-bold text-slate-700">Total Facturado:</span>
-                    <span className="text-lg font-bold text-emerald-700">{guaranies.format(factura.total ?? 0)}</span>
+                <div className="flex flex-col gap-1 pt-3 border-t border-(--borderColor-input)">
+                    {descuento > 0 && (
+                        <div className="flex justify-between items-center">
+                            <span className="text-gray-500">Descuento de la inscripción</span>
+                            <span className="font-semibold text-slate-700">− {formatearMonto(descuento)}</span>
+                        </div>
+                    )}
+                    <div className="flex justify-between items-center">
+                        <span className="font-bold text-slate-800">Total</span>
+                        <span className="text-lg font-extrabold text-(--btnColor-primary)">{formatearMonto(factura?.total)}</span>
+                    </div>
                 </div>
             </div>
         </Modal>
