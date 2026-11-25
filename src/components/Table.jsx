@@ -6,6 +6,8 @@
  * 
  * @param {[]} headers -> Array de strings con los encabezados de la tabla
  * @param {[]} data -> Array de arrays con los datos de la tabla
+ * @param {[]} actions -> Array de { type, title, onClick(fila, indice), show(fila, indice) }.
+ *                       `show` es opcional: si devuelve false, esa fila no muestra la acción
  * @param {boolean} loading -> Si es true, muestra "Cargando..." en lugar de las filas o del mensaje de vacío
  * @param {string} emptyMessage -> Texto a mostrar cuando no hay filas
  * @returns <table>
@@ -31,7 +33,8 @@ export const Table = ({
         "edit": "icon-[heroicons--pencil]",
         "delete": "icon-[heroicons--trash]",
         "view": "icon-[heroicons--eye]",
-        "save": "icon-[heroicons--check]"
+        "save": "icon-[heroicons--check]",
+        "invoice": "icon-[heroicons--banknotes]"
     }
 
     //Agreguen aca los estados que necesiten para que se muestren en la tabla como badges
@@ -89,7 +92,7 @@ export const Table = ({
                             {actions && actions.length > 0 && (
                                 <td>
                                     <div className="flex flex-row gap-3 justify-center">
-                                        {actions.map((action, actionIndex) => (
+                                        {actions.map((action, actionIndex) => (!action.show || action.show(item, index)) && (
                                             <button
                                                 key={actionIndex}
                                                 type="button"
