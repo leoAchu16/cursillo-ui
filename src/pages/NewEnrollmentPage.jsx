@@ -1,340 +1,269 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import { SegmentedControl } from "../components/SegmentedControl";
 import { Combobox } from "../components/Combobox";
 import { Table } from "../components/Table";
-import { listarMaterias, listarExamenesPorMateria } from "../services/notasService";
-import { crearInscripcion } from "../services/inscripcionesService";
-import { listarAlumnos } from "../services/usuariosService";
-import api from "../services/api";
+import { Spinner } from "../components/Spinner";
+import { listarMateriasPaginado, listarExamenesPaginado } from "../services/notasService";
+import { crearInscripcion, listarDescuentos } from "../services/inscripcionesService";
+import { listarAlumnosPaginado } from "../services/usuariosService";
+import { obtenerPrecioConcepto } from "./facturacion/services/facturacionService";
+import { mensajeDeError } from "../services/api";
+
+// Se cargan todas las opciones de una vez para los combos
+const MAX_OPCIONES = 1000;
+
+// Valor a mostrar cuando un campo viene vacío
+const SIN_DATO = '—';
+
+const INPUT_CLASS = "w-full px-3 py-2 rounded-lg border border-(--borderColor-input) bg-white text-sm focus:outline-none focus:border-(--btnColor-primary)";
+// Versión compacta (mb-1) para que la página entre en pantalla sin scroll
+const LABEL_CLASS = "block text-xs font-bold text-gray-600 tracking-wider uppercase mb-1";
+
+// .card trae h-fit: con h-auto las dos tarjetas de la grilla se estiran a la misma altura
+const CARD_CLASS = "card h-auto p-4 gap-3";
+
+// La tabla hace scroll dentro de este contenedor, que lleva el borde (así no se corta al desplazar).
+// El encabezado queda fijo: para eso la tabla no puede tener su propio overflow-hidden.
+const TABLA_SCROLL_CLASS = "min-h-0 max-h-48 lg:max-h-none overflow-auto border-2 border-(--borderColor-input) rounded-md shadow-md "
+    + "[&>table]:w-full [&>table]:border-0 [&>table]:rounded-none [&>table]:shadow-none [&>table]:overflow-visible "
+    + "[&_th]:sticky [&_th]:top-0 [&_th]:z-10";
+
+const ETIQUETA_DIA = {
+    LUNES: 'Lunes', MARTES: 'Martes', MIERCOLES: 'Miércoles', JUEVES: 'Jueves',
+    VIERNES: 'Viernes', SABADO: 'Sábado', DOMINGO: 'Domingo',
+};
+const formatearDia = (dia) => ETIQUETA_DIA[dia] || dia || SIN_DATO;
+
+/**
+ * "2026-11-20" -> "20/11/2026". Sin new Date(): se interpretaría como UTC
+ * y en Paraguay (UTC-3) se mostraría el día anterior.
+ */
+const formatearFecha = (fecha) => {
+    if (!fecha) return SIN_DATO;
+    const [anio, mes, dia] = String(fecha).slice(0, 10).split('-');
+    return anio && mes && dia ? `${dia}/${mes}/${anio}` : String(fecha);
+};
+
+// "18:00:00" -> "18:00"
+const formatearHora = (hora) => (hora ? String(hora).slice(0, 5) : "");
+
+const formatearMonto = (monto) =>
+    monto === undefined || monto === null ? SIN_DATO : `Gs. ${Number(monto).toLocaleString("es-PY")}`;
+
+const SECCIONES = [
+    { label: "Materia", value: "MATERIA" },
+    { label: "Examen", value: "EXAMEN" }
+];
 
 export const NewEnrollmentPage = () => {
     const navigate = useNavigate();
 
-    // Tipo de item a agregar: 'subject' (Materia) | 'exam' (Examen)
-    const [seccion, setSeccion] = useState("subject");
-
-    // Selección actual en el formulario de items
-    const [selectedSubjectId, setSelectedSubjectId] = useState(null);
-    const [selectedExamId, setSelectedExamId] = useState(null);
-    const [itemCosto, setItemCosto] = useState("");
-
-    // Datos del Alumno
-    const [selectedStudentId, setSelectedStudentId] = useState(null);
-    const [studentIdInput, setStudentIdInput] = useState("");
-    const [studentNombre, setStudentNombre] = useState("");
-    const [studentCedula, setStudentCedula] = useState("");
-    const [studentEmail, setStudentEmail] = useState("");
-
-    // Opciones cargadas
-    const [studentOptions, setStudentOptions] = useState([]);
-    const [subjectOptions, setSubjectOptions] = useState([]);
-    const [examOptions, setExamOptions] = useState([]);
-
-    // Lista de items agregados a la inscripción
-    const [itemsInscripcion, setItemsInscripcion] = useState([]);
-
-    // Estados de interfaz y feedback
+    // Datos cargados del backend
+    const [alumnos, setAlumnos] = useState([]);
+    const [materias, setMaterias] = useState([]);
+    const [examenes, setExamenes] = useState([]);
+    const [descuentos, setDescuentos] = useState([]);
+    const [precios, setPrecios] = useState({ MATERIA: null, EXAMEN: null }); // montoBase de cada concepto
     const [loadingData, setLoadingData] = useState(true);
+
+    // Formulario
+    const [idAlumno, setIdAlumno] = useState(null);
+    const [seccion, setSeccion] = useState("MATERIA");
+    const [idItemSeleccionado, setIdItemSeleccionado] = useState(null); // idMateria o idExamen
+    const [itemCosto, setItemCosto] = useState("");
+    const [idDescuento, setIdDescuento] = useState("");
+    const [items, setItems] = useState([]); // { tipo, idMateria|idExamen, nombre, cuando, costo }
     const [submitting, setSubmitting] = useState(false);
-    const [error, setError] = useState(null);
-    const [formItemError, setFormItemError] = useState(null);
 
-    const seccionOptions = [
-        { label: "Materia", value: "subject" },
-        { label: "Exámen", value: "exam" }
-    ];
-
-    // Cargar materias, exámenes y alumnos disponibles
+    // Carga inicial en paralelo: si una lista falla, las demás se muestran igual
     useEffect(() => {
-        const cargarDatosIniciales = async () => {
-            setLoadingData(true);
-            try {
-                // 1. Cargar Alumnos
-                try {
-                    const alumnosData = await listarAlumnos();
-                    const listaAlumnos = Array.isArray(alumnosData)
-                        ? alumnosData
-                        : alumnosData?.content || [];
+        let ignore = false;
 
-                    const formateados = listaAlumnos.map((a) => {
-                        // Capturamos de forma segura cualquier variante de ID del backend
-                        const id = a.id || a.idAlumno || a.idUsuario;
-                        const nombre = a.nombre ? `${a.nombre} ${a.apellido || ""}`.trim() : a.nombreCompleto || `Alumno #${id}`;
-                        return {
-                            label: `${nombre} (ID: ${id})`,
-                            value: id,
-                            nombre,
-                            ci: a.ci || a.cedula || a.documento || "",
-                            email: a.email || a.correo || ""
-                        };
-                    });
-                    setStudentOptions(formateados);
-                } catch (err) {
-                    console.error("Error al cargar alumnos:", err);
-                    setStudentOptions([]);
+        const cargar = async () => {
+            const [resAlumnos, resMaterias, resExamenes, resDescuentos, resPrecioMateria, resPrecioExamen] =
+                await Promise.allSettled([
+                    listarAlumnosPaginado({ page: 0, size: MAX_OPCIONES }),
+                    listarMateriasPaginado({ page: 0, size: MAX_OPCIONES }),
+                    listarExamenesPaginado({ page: 0, size: MAX_OPCIONES }),
+                    listarDescuentos({ size: MAX_OPCIONES }),
+                    obtenerPrecioConcepto("materia"),
+                    obtenerPrecioConcepto("examen"),
+                ]);
+            if (ignore) return;
+
+            const avisar = (resultado, mensaje) => {
+                if (resultado.status === "rejected") {
+                    console.error(mensaje, resultado.reason);
+                    toast.warning(mensaje);
+                    return false;
                 }
+                return true;
+            };
 
-                // 2. Cargar Materias
-                let materiasList = [];
-                try {
-                    const dataMaterias = await listarMaterias();
-                    materiasList = Array.isArray(dataMaterias)
-                        ? dataMaterias
-                        : dataMaterias?.content || dataMaterias?.data || [];
+            if (avisar(resAlumnos, "No se pudieron cargar los alumnos.")) setAlumnos(resAlumnos.value.content);
+            if (avisar(resMaterias, "No se pudieron cargar las materias.")) setMaterias(resMaterias.value.content);
+            if (avisar(resExamenes, "No se pudieron cargar los exámenes.")) setExamenes(resExamenes.value.content);
+            if (avisar(resDescuentos, "No se pudieron cargar los descuentos.")) setDescuentos(resDescuentos.value);
 
-                    const matsFormateadas = materiasList.map((m) => {
-                        const id = m.id || m.idMateria;
-                        const nombre = m.nombre || m.nombreMateria || `Materia #${id}`;
-                        const horario = m.horario || m.dia || "Horario regular";
-                        const costo = Number(m.costo || m.precio || 100000);
-                        return {
-                            label: `${nombre} — ${horario} (Gs. ${costo.toLocaleString("es-PY")})`,
-                            value: id,
-                            nombre,
-                            horario,
-                            costo
-                        };
-                    });
-                    setSubjectOptions(matsFormateadas);
-                } catch (err) {
-                    console.error("Error al cargar materias:", err);
-                    setSubjectOptions([]);
-                }
+            const okMateria = avisar(resPrecioMateria, "No se pudo obtener el precio de las materias.");
+            const okExamen = avisar(resPrecioExamen, "No se pudo obtener el precio de los exámenes.");
+            const precioMateria = okMateria ? resPrecioMateria.value : null;
+            const precioExamen = okExamen ? resPrecioExamen.value : null;
+            // Sin estos conceptos el backend rechaza la inscripción si el costo no viene cargado
+            if (okMateria && precioMateria === null)
+                toast.warning("No está configurado el precio de materia; cargalo en Conceptos.");
+            if (okExamen && precioExamen === null)
+                toast.warning("No está configurado el precio de examen; cargalo en Conceptos.");
+            setPrecios({ MATERIA: precioMateria, EXAMEN: precioExamen });
 
-                // 3. Cargar Exámenes
-                let examenesList = [];
-                try {
-                    const resp = await api.get("/examenes");
-                    examenesList = Array.isArray(resp.data) ? resp.data : resp.data?.content || [];
-                } catch {
-                    if (materiasList.length > 0) {
-                        try {
-                            const promesas = materiasList.map((m) =>
-                                listarExamenesPorMateria(m.id || m.idMateria).catch(() => [])
-                            );
-                            const resListas = await Promise.all(promesas);
-                            examenesList = resListas.flat().filter(Boolean);
-                        } catch (err) {
-                            console.error("Error al cargar examenes por materia:", err);
-                            examenesList = [];
-                        }
-                    }
-                }
-
-                const examsFormateados = examenesList.map((e) => {
-                    const id = e.id || e.idExamen;
-                    const nombre = e.nombre || e.titulo || e.descripcion || `Examen #${id}`;
-                    const horario = e.fecha ? `Fecha: ${e.fecha}` : "Fecha programada";
-                    const costo = Number(e.costo || e.precio || 150000);
-                    return {
-                        label: `${nombre} — ${horario} (Gs. ${costo.toLocaleString("es-PY")})`,
-                        value: id,
-                        idMateria: e.idMateria || null,
-                        nombre,
-                        horario,
-                        costo
-                    };
-                });
-                setExamOptions(examsFormateados);
-
-            } catch (errGeneral) {
-                console.error("Error general al cargar datos iniciales:", errGeneral);
-            } finally {
-                setLoadingData(false);
-            }
+            setLoadingData(false);
         };
+        cargar();
 
-        cargarDatosIniciales();
+        return () => { ignore = true; };
     }, []);
 
-    // Manejar selección de un alumno
-    const handleSelectStudent = (val) => {
-        setSelectedStudentId(val);
-        if (val) {
-            const alumno = studentOptions.find((s) => s.value === val);
-            if (alumno) {
-                setStudentIdInput(String(alumno.value));
-                setStudentNombre(alumno.nombre || alumno.label);
-                setStudentCedula(alumno.ci || "");
-                setStudentEmail(alumno.email || "");
-            }
+    // ------------------------------ OPCIONES DE COMBOS ------------------------------
+
+    const materiasPorId = Object.fromEntries(materias.map(m => [m.idMateria, m]));
+    const alumnoSeleccionado = alumnos.find(a => a.idUsuario === idAlumno);
+    const descuentoSeleccionado = descuentos.find(d => String(d.idDescuento) === idDescuento);
+
+    const opcionesAlumnos = alumnos.map(a => ({
+        value: a.idUsuario,
+        label: a.nombre || `Alumno #${a.idUsuario}`,
+    }));
+
+    const opcionesMaterias = materias.map(m => ({
+        value: m.idMateria,
+        label: `${m.nombreMateria} — ${formatearDia(m.dia)}`,
+    }));
+
+    const describirExamen = (e) =>
+        [formatearFecha(e.fecha), formatearHora(e.hora)].filter(Boolean).join(" ");
+
+    const opcionesExamenes = examenes.map(e => ({
+        value: e.idExamen,
+        label: [e.titulo, materiasPorId[e.idMateria]?.nombreMateria, describirExamen(e)].filter(Boolean).join(" — "),
+    }));
+
+    // ------------------------------------ ÍTEMS -------------------------------------
+
+    const cambiarSeccion = (valor) => {
+        setSeccion(valor);
+        setIdItemSeleccionado(null);
+        setItemCosto("");
+    };
+
+    // Al elegir una materia o un examen, el costo se completa con el precio del concepto
+    const seleccionarItem = (id) => {
+        setIdItemSeleccionado(id);
+        const precio = precios[seccion];
+        setItemCosto(id != null && precio != null ? String(precio) : "");
+    };
+
+    const handleAgregarItem = () => {
+        if (idItemSeleccionado == null) {
+            toast.warning(seccion === "MATERIA" ? "Seleccioná una materia." : "Seleccioná un examen.");
+            return;
+        }
+        // Se permite 0 (ej. beca); solo enteros no negativos
+        const costo = Number(itemCosto);
+        if (itemCosto === "" || !Number.isInteger(costo) || costo < 0) {
+            toast.warning("El costo debe ser un número entero mayor o igual a 0.");
+            return;
+        }
+
+        const campoId = seccion === "MATERIA" ? "idMateria" : "idExamen";
+        if (items.some(it => it.tipo === seccion && it[campoId] === idItemSeleccionado)) {
+            toast.warning(seccion === "MATERIA" ? "Esa materia ya está en la lista." : "Ese examen ya está en la lista.");
+            return;
+        }
+
+        let nuevoItem;
+        if (seccion === "MATERIA") {
+            const m = materiasPorId[idItemSeleccionado];
+            nuevoItem = { tipo: "MATERIA", idMateria: m.idMateria, nombre: m.nombreMateria, cuando: formatearDia(m.dia), costo };
         } else {
-            setStudentIdInput("");
-            setStudentNombre("");
-            setStudentCedula("");
-            setStudentEmail("");
-        }
-    };
-
-    const handleStudentIdInputChange = (e) => {
-        const nuevoId = e.target.value;
-        setStudentIdInput(nuevoId);
-        const num = Number(nuevoId);
-        const match = studentOptions.find((s) => s.value === num);
-        if (match) {
-            setSelectedStudentId(match.value);
-            setStudentNombre(match.nombre || match.label);
-            setStudentCedula(match.ci || "");
-            setStudentEmail(match.email || "");
-        } else {
-            setSelectedStudentId(null);
-            setStudentNombre("");
-            setStudentCedula("");
-            setStudentEmail("");
-        }
-    };
-
-    const handleSelectSubject = (id) => {
-        setSelectedSubjectId(id);
-        const mat = subjectOptions.find((s) => s.value === id);
-        if (mat) {
-            setItemCosto(String(mat.costo));
-        }
-        setFormItemError(null);
-    };
-
-    const handleSelectExam = (id) => {
-        setSelectedExamId(id);
-        const ex = examOptions.find((e) => e.value === id);
-        if (ex) {
-            setItemCosto(String(ex.costo));
-        }
-        setFormItemError(null);
-    };
-
-    const handleAddItem = (e) => {
-        e?.preventDefault();
-        setFormItemError(null);
-
-        if (seccion === "subject") {
-            if (!selectedSubjectId) {
-                setFormItemError("Debes seleccionar una materia para agregar.");
-                return;
-            }
-            const mat = subjectOptions.find((s) => s.value === selectedSubjectId);
-            const costoNum = Number(itemCosto) || mat.costo;
-
-            const nuevoItem = {
-                idLocal: Date.now() + Math.random(),
-                tipo: "MATERIA",
-                idMateria: mat.value,
-                idExamen: null,
-                nombre: mat.nombre,
-                horario: mat.horario,
-                costo: costoNum
-            };
-
-            setItemsInscripcion((prev) => [...prev, nuevoItem]);
-            setSelectedSubjectId(null);
-            setItemCosto("");
-        } else {
-            if (!selectedExamId) {
-                setFormItemError("Debes seleccionar un examen para agregar.");
-                return;
-            }
-            const ex = examOptions.find((e) => e.value === selectedExamId);
-            const costoNum = Number(itemCosto) || ex.costo;
-
-            const nuevoItem = {
-                idLocal: Date.now() + Math.random(),
+            const e = examenes.find(ex => ex.idExamen === idItemSeleccionado);
+            const materia = materiasPorId[e.idMateria]?.nombreMateria;
+            nuevoItem = {
                 tipo: "EXAMEN",
-                idMateria: ex.idMateria || null,
-                idExamen: ex.value,
-                nombre: ex.nombre,
-                horario: ex.horario,
-                costo: costoNum
+                idExamen: e.idExamen,
+                nombre: materia ? `${e.titulo} (${materia})` : e.titulo,
+                cuando: describirExamen(e) || SIN_DATO,
+                costo
             };
-
-            setItemsInscripcion((prev) => [...prev, nuevoItem]);
-            setSelectedExamId(null);
-            setItemCosto("");
         }
+
+        setItems(prev => [...prev, nuevoItem]);
+        setIdItemSeleccionado(null);
+        setItemCosto("");
     };
 
-    const handleRemoveItem = (itemRow) => {
-        const idLocal = itemRow._idLocal;
-        setItemsInscripcion((prev) => prev.filter((it) => it.idLocal !== idLocal));
+    const quitarItem = (index) => {
+        setItems(prev => prev.filter((_, i) => i !== index));
     };
 
-    const totalCosto = itemsInscripcion.reduce((acc, curr) => acc + (Number(curr.costo) || 0), 0);
+    // Misma cuenta que el backend (InscripcionService.calcularTotal): división entera
+    const subtotal = items.reduce((acc, it) => acc + it.costo, 0);
+    const porcentaje = descuentoSeleccionado?.porcentaje || 0;
+    const montoDescuento = Math.floor((subtotal * porcentaje) / 100);
+    const total = Math.max(0, subtotal - montoDescuento);
 
-    const handleSubmitInscripcion = async () => {
-        setError(null);
+    // ---------------------------------- CONFIRMAR -----------------------------------
 
-        const finalIdAlumno = Number(studentIdInput);
-        if (!finalIdAlumno || isNaN(finalIdAlumno) || finalIdAlumno <= 0) {
-            setError("Debes indicar un ID de Alumno válido.");
+    const handleConfirmar = async () => {
+        if (idAlumno == null) {
+            toast.warning("Seleccioná un alumno.");
             return;
         }
-
-        if (itemsInscripcion.length === 0) {
-            setError("Debes agregar al menos una materia o examen a la inscripción.");
+        if (items.length === 0) {
+            toast.warning("Agregá al menos una materia o examen.");
             return;
         }
-
-        const detallesFormateados = itemsInscripcion.map((it) => ({
-            tipoInscripcion: it.tipo,
-            costo: Number(it.costo) || 0,
-            ...(it.tipo === "MATERIA" ? { idMateria: Number(it.idMateria) } : {}),
-            ...(it.tipo === "EXAMEN" ? { idExamen: Number(it.idExamen), idMateria: it.idMateria ? Number(it.idMateria) : undefined } : {})
-        }));
 
         const dto = {
-            idAlumno: finalIdAlumno,
-            idSecretaria: 5,
-            detallesInscripcion: detallesFormateados
+            idAlumno,
+            ...(descuentoSeleccionado ? { idDescuento: descuentoSeleccionado.idDescuento } : {}),
+            detallesInscripcion: items.map(it => ({
+                tipoInscripcion: it.tipo,
+                costo: it.costo,
+                ...(it.tipo === "MATERIA" ? { idMateria: it.idMateria } : { idExamen: it.idExamen })
+            }))
         };
 
         setSubmitting(true);
         try {
-            await crearInscripcion(dto);
-            navigate("/inscripciones", {
-                state: {
-                    mensajeExito: `¡Inscripción para el alumno #${finalIdAlumno} registrada con éxito!`
-                }
-            });
+            const creada = await crearInscripcion(dto);
+            // El Toaster es global (App.jsx): el toast sigue visible después de navegar
+            toast.success("Inscripción registrada correctamente. Ahora podés facturarla.");
+            // Queda PENDIENTE: la secretaria se registra recién al emitir la factura
+            navigate(`/facturas/nueva?alumno=${idAlumno}&inscripcion=${creada.idInscripcion}`);
         } catch (err) {
-            console.error("Error al enviar inscripción:", err);
-            const msg = err.response?.data?.message || err.message;
-            setError(msg || "Error al procesar la inscripción en el servidor.");
+            console.error("Error al registrar la inscripción:", err);
+            const mensaje = err.response?.status === 403
+                ? "No tenés permisos para registrar inscripciones."
+                : mensajeDeError(err, "No se pudo registrar la inscripción.");
+            toast.error(mensaje);
         } finally {
             setSubmitting(false);
         }
     };
 
-    const headersTable = ["Tipo inscripción", "Materia / Examen", "Día / Horario", "Costo (Gs.)", "Acciones"];
+    // ----------------------------------- TABLA --------------------------------------
 
-    const dataTable = itemsInscripcion.map((item) => {
-        const row = [
-            item.tipo,
-            item.nombre,
-            item.horario,
-            `Gs. ${Number(item.costo).toLocaleString("es-PY")}`
-        ];
-        row._idLocal = item.idLocal;
-        return row;
-    });
-
+    const headersTable = ["Tipo", "Materia / Examen", "Día / Fecha", "Costo", "Acciones"];
+    const filas = items.map(it => [it.tipo, it.nombre, it.cuando, formatearMonto(it.costo)]);
     const tableActions = [
-        {
-            type: "delete",
-            title: "Quitar de la lista",
-            onClick: handleRemoveItem
-        }
+        { type: "delete", title: "Quitar de la lista", onClick: (_, index) => quitarItem(index) }
     ];
 
-    if (loadingData) {
-        return (
-            <div className="flex justify-center items-center h-full p-12">
-                <p>Cargando datos...</p>
-            </div>
-        );
-    }
-
     return (
-        <div className="container-page">
-            <div className="flex flex-col">
+        <div className="container-page lg:h-full">
+            <div className="flex flex-col shrink-0">
                 <button
                     type="button"
                     onClick={() => navigate("/inscripciones")}
@@ -347,187 +276,165 @@ export const NewEnrollmentPage = () => {
                 <h2>Gestión de inscripciones de alumnos a materias o exámenes</h2>
             </div>
 
-            {error && (
-                <div className="bg-rose-50 border border-rose-300 text-rose-800 px-4 py-3 rounded-xl flex items-center justify-between shadow-sm animate-in fade-in duration-200">
-                    <div className="flex items-center gap-2">
-                        <i className="icon-[heroicons--exclamation-circle] text-rose-600 text-xl shrink-0"></i>
-                        <span className="text-sm font-medium">{error}</span>
-                    </div>
-                    <button
-                        type="button"
-                        onClick={() => setError(null)}
-                        className="text-rose-700 hover:text-rose-900 cursor-pointer"
-                    >
-                        <i className="icon-[heroicons--x-mark] text-lg"></i>
-                    </button>
+            {loadingData ? (
+                <div className="flex items-center justify-center gap-2 p-12 text-sm text-gray-500 font-medium">
+                    <Spinner className="h-5 w-5 text-(--btnColor-primary)" />
+                    Cargando datos...
                 </div>
-            )}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* TARJETA 1: DATOS DEL ALUMNO */}
-                <div className="card">
-                    <div className="flex justify-between items-center mb-1">
-                        <h3>Datos del Alumno</h3>
-                        <span className="text-xs text-gray-500">ID requerido por backend</span>
-                    </div>
-
-                    <div className="flex flex-col gap-3">
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            <div className="sm:col-span-2 flex flex-col gap-1.5">
-                                <label className="text-sm font-medium text-slate-700">Seleccionar Alumno</label>
+            ) : (
+                <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 shrink-0">
+                        {/* TARJETA 1: ALUMNO (3 filas, igual que "Agregar ítem") */}
+                        <div className={CARD_CLASS}>
+                            <div className="flex items-center min-h-10">
+                                <h3>Alumno</h3>
+                            </div>
+                            <div>
+                                <label className={LABEL_CLASS}>Seleccionar alumno</label>
                                 <Combobox
-                                    options={studentOptions}
-                                    value={selectedStudentId}
-                                    onChange={handleSelectStudent}
-                                    placeholder="Buscar alumno..."
+                                    options={opcionesAlumnos}
+                                    value={idAlumno}
+                                    onChange={setIdAlumno}
+                                    placeholder="Buscar alumno por nombre..."
                                     className="w-full"
                                 />
                             </div>
-
-                            <div className="flex flex-col gap-1.5">
-                                <label className="text-sm font-medium text-slate-700">
-                                    ID Alumno <span className="text-rose-500">*</span>
-                                </label>
+                            <div>
+                                <label htmlFor="emailAlumno" className={LABEL_CLASS}>Email</label>
                                 <input
-                                    className="w-full border rounded p-2"
-                                    type="number"
-                                    min="1"
-                                    placeholder="Ej: 1"
-                                    value={studentIdInput}
-                                    onChange={handleStudentIdInputChange}
-                                    required
-                                />
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div className="flex flex-col gap-1.5">
-                                <label className="text-sm font-medium text-slate-700">Nro. de Cédula</label>
-                                <input
-                                    className="w-full border rounded p-2 bg-gray-50"
-                                    type="text"
-                                    placeholder="1234567"
-                                    value={studentCedula}
-                                    readOnly
-                                />
-                            </div>
-
-                            <div className="flex flex-col gap-1.5">
-                                <label className="text-sm font-medium text-slate-700">Correo Electrónico</label>
-                                <input
-                                    className="w-full border rounded p-2 bg-gray-50"
+                                    id="emailAlumno"
+                                    className={`${INPUT_CLASS} bg-gray-100! text-gray-600 cursor-not-allowed`}
                                     type="email"
-                                    placeholder="alumno@ejemplo.com"
-                                    value={studentEmail}
-                                    readOnly
+                                    value={alumnoSeleccionado?.email || ""}
+                                    placeholder="Se completa al seleccionar el alumno"
+                                    disabled
                                 />
                             </div>
                         </div>
-                    </div>
-                </div>
 
-                {/* TARJETA 2: AGREGAR ITEM */}
-                <div className="card flex flex-col justify-between">
-                    <div>
-                        <div className="flex justify-between items-center mb-3">
-                            <h3>Agregar Item</h3>
-                            <SegmentedControl
-                                value={seccion}
-                                onChange={(val) => {
-                                    setSeccion(val);
-                                    setFormItemError(null);
-                                }}
-                                options={seccionOptions}
-                            />
-                        </div>
+                        {/* TARJETA 2: AGREGAR ÍTEM (3 filas: título, combo, costo + botón) */}
+                        <div className={CARD_CLASS}>
+                            <div className="flex justify-between items-center min-h-10">
+                                <h3>Agregar ítem</h3>
+                                <SegmentedControl value={seccion} onChange={cambiarSeccion} options={SECCIONES} />
+                            </div>
 
-                        {formItemError && (
-                            <p className="text-xs text-rose-600 mb-2 font-medium bg-rose-50 p-2 rounded-lg border border-rose-200">
-                                {formItemError}
-                            </p>
-                        )}
-
-                        <div className="flex flex-col gap-3">
-                            <div className="flex flex-col gap-1.5">
-                                <label className="text-sm font-medium text-slate-700">
-                                    {seccion === "subject" ? "Materia a inscribir" : "Examen a inscribir"}
+                            <div>
+                                <label className={LABEL_CLASS}>
+                                    {seccion === "MATERIA" ? "Materia a inscribir" : "Examen a inscribir"}
                                 </label>
                                 <Combobox
-                                    options={seccion === "subject" ? subjectOptions : examOptions}
-                                    value={seccion === "subject" ? selectedSubjectId : selectedExamId}
-                                    onChange={seccion === "subject" ? handleSelectSubject : handleSelectExam}
-                                    placeholder={`Seleccionar ${seccion === "subject" ? "materia" : "examen"}...`}
+                                    options={seccion === "MATERIA" ? opcionesMaterias : opcionesExamenes}
+                                    value={idItemSeleccionado}
+                                    onChange={seleccionarItem}
+                                    placeholder={seccion === "MATERIA" ? "Seleccionar materia..." : "Seleccionar examen..."}
                                     className="w-full"
                                 />
                             </div>
 
-                            <div className="flex flex-col gap-1.5">
-                                <label className="text-sm font-medium text-slate-700">Costo (Gs.)</label>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    step="5000"
-                                    placeholder="100000"
-                                    value={itemCosto}
-                                    onChange={(e) => setItemCosto(e.target.value)}
-                                    className="w-full border rounded p-2"
-                                />
+                            <div className="grid grid-cols-[1fr_auto] gap-2 items-end">
+                                <div>
+                                    <label
+                                        htmlFor="itemCosto"
+                                        className={LABEL_CLASS}
+                                        title="Se completa con el precio del concepto. Podés modificarlo (ej. becas)."
+                                    >
+                                        Costo (Gs.)
+                                    </label>
+                                    <input
+                                        id="itemCosto"
+                                        type="number"
+                                        min="0"
+                                        step="1"
+                                        value={itemCosto}
+                                        onChange={(e) => setItemCosto(e.target.value)}
+                                        placeholder={precios[seccion] != null ? String(precios[seccion]) : "Ej. 100000"}
+                                        title="Se completa con el precio del concepto. Podés modificarlo (ej. becas)."
+                                        className={INPUT_CLASS}
+                                    />
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleAgregarItem}
+                                    className="btn-primary cursor-pointer px-3 whitespace-nowrap"
+                                    title="Agregar a la lista"
+                                >
+                                    <i className="icon-[heroicons--plus] text-white mr-1"></i>
+                                    Agregar
+                                </button>
                             </div>
                         </div>
                     </div>
 
-                    <div className="flex justify-end mt-4 pt-3 border-t border-slate-100">
-                        <button
-                            type="button"
-                            onClick={handleAddItem}
-                            className="flex items-center bg-(--btnColor-secondary) text-white rounded-xl p-2 px-5 shadow-sm hover:bg-blue-700 transition-colors cursor-pointer text-sm font-semibold"
-                        >
-                            <i className="icon-[heroicons--plus] text-white mr-1.5 text-base"></i>
-                            Agregar a la lista
-                        </button>
+                    {/* TARJETA 3: ÍTEMS Y CONFIRMACIÓN
+                        Izquierda: título y tabla. Derecha: descuento, totales y confirmación, desde la altura del título.
+                        En lg la tarjeta se achica hasta el alto libre de la ventana (la tabla hace scroll), pero nunca
+                        menos que el panel. En pantallas angostas el panel baja y la línea pasa a ser horizontal. */}
+                    <div className={`${CARD_CLASS} lg:min-h-[14.5rem]`}>
+                        <div className="flex flex-col lg:flex-row gap-4 min-h-0">
+                            <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-3">
+                                <div className="flex items-baseline gap-2 shrink-0">
+                                    <h3>Ítems de la inscripción</h3>
+                                    <span className="text-xs text-gray-500">
+                                        ({items.length} {items.length === 1 ? "ítem" : "ítems"})
+                                    </span>
+                                </div>
+                                <div className={TABLA_SCROLL_CLASS}>
+                                    <Table
+                                        headers={headersTable}
+                                        data={filas}
+                                        actions={tableActions}
+                                        emptyMessage="Todavía no agregaste materias ni exámenes"
+                                        showPagination={false}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="lg:w-64 shrink-0 flex flex-col gap-2 text-sm border-(--borderColor-input) border-t pt-3 lg:border-t-0 lg:pt-0 lg:border-l lg:pl-4">
+                                <div>
+                                    <label htmlFor="descuento" className={LABEL_CLASS}>Descuento</label>
+                                    <select
+                                        id="descuento"
+                                        value={idDescuento}
+                                        onChange={(e) => setIdDescuento(e.target.value)}
+                                        className={`${INPUT_CLASS} text-gray-700`}
+                                        title="Se aplica al total de la inscripción"
+                                    >
+                                        <option value="">Sin descuento</option>
+                                        {descuentos.map(d => (
+                                            <option key={d.idDescuento} value={d.idDescuento}>
+                                                {d.nombre} ({d.porcentaje}%)
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="flex justify-between items-baseline gap-2">
+                                    <span className="text-gray-500">Subtotal</span>
+                                    <span className="font-semibold text-slate-700">{formatearMonto(subtotal)}</span>
+                                </div>
+                                {/* Siempre visible, para que el panel no cambie de alto al elegir un descuento */}
+                                <div className="flex justify-between items-baseline gap-2">
+                                    <span className="text-gray-500">Descuento ({porcentaje}%)</span>
+                                    <span className="font-semibold text-slate-700">− {formatearMonto(montoDescuento)}</span>
+                                </div>
+                                <div className="flex justify-between items-baseline gap-2">
+                                    <span className="text-xs text-gray-500 uppercase font-semibold">Total</span>
+                                    <span className="text-xl font-extrabold text-(--btnColor-primary)">{formatearMonto(total)}</span>
+                                </div>
+                                <button
+                                    type="button"
+                                    disabled={submitting}
+                                    onClick={handleConfirmar}
+                                    className="btn-primary w-full mt-auto gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                                >
+                                    {submitting && <Spinner className="h-4 w-4 text-white" />}
+                                    Confirmar inscripción
+                                </button>
+                            </div>
+                        </div>
                     </div>
-                </div>
-            </div>
-
-            {/* TARJETA 3: LISTA DE ITEMS A INSCRIBIR Y CONFIRMACIÓN */}
-            <div className="card flex flex-col gap-4 mt-4">
-                <div className="flex justify-between items-center">
-                    <div>
-                        <h3>Items de la Inscripción</h3>
-                        <p className="text-xs text-gray-500">
-                            {itemsInscripcion.length} {itemsInscripcion.length === 1 ? "elemento agregado" : "elementos agregados"}
-                        </p>
-                    </div>
-
-                    <div className="text-right">
-                        <span className="text-xs text-gray-500 uppercase font-semibold block">Total a Facturar</span>
-                        <span className="text-xl font-extrabold text-blue-600">
-                            Gs. {totalCosto.toLocaleString("es-PY")}
-                        </span>
-                    </div>
-                </div>
-
-                <Table
-                    headers={headersTable}
-                    data={dataTable}
-                    actions={tableActions}
-                    showPagination={false}
-                />
-
-                <div className="flex justify-end pt-4 border-t border-slate-200">
-                    <button
-                        type="button"
-                        disabled={submitting || itemsInscripcion.length === 0}
-                        onClick={handleSubmitInscripcion}
-                        className={`flex items-center px-6 py-2 rounded-xl text-white font-semibold text-sm shadow-md transition-all ${submitting || itemsInscripcion.length === 0
-                            ? "bg-(--btnColor-primary) cursor-not-allowed shadow-none"
-                            : "bg-(--btnColor-primary) hover:bg-(--btnColor-primary-hover) cursor-pointer"
-                            }`}
-                    >
-                        {submitting ? "Guardando..." : "Confirmar Inscripción"}
-                    </button>
-                </div>
-            </div>
+                </>
+            )}
         </div>
     );
 };
