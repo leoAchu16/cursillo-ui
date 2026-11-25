@@ -3,11 +3,11 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { Toaster } from 'sonner';
 
 import { Layout } from './components/Layout';
+import { authService } from './services/authService';
 import { SubjectsPage } from './pages/SubjectsPage';
 import { LoginPage } from './pages/LoginPage';
 import { EnrollmentsPage } from './pages/EnrollmentsPage';
 import { StudentsPage } from './pages/StudentsPage';
-import { InvoicePage } from './pages/InvoicePage';
 import { DashboardPageSecretary } from './pages/DashboardPageSecretary';
 import { NewEnrollmentPage } from './pages/NewEnrollmentPage';
 import { DashboardPageTeacher } from './pages/profesores/DashboardPageTeacher';
@@ -18,26 +18,33 @@ import { SeleccionMateriaExamenPage } from './pages/profesores/SeleccionMateriaE
 import { CalificarExamenPage } from './pages/profesores/CalificarExamenPage';
 import { ResultadosExamenPage } from './pages/profesores/ResultadosExamenPage';
 import { FacturasPage } from './pages/facturacion/FacturasPage';
+import { NuevaFacturaPage } from './pages/facturacion/NuevaFacturaPage';
 import { ConceptosPage } from './pages/facturacion/ConceptosPage';
 import { DashboardPageAlumno } from './pages/alumnos/DashboardPage';
 import { MisMateriasAlumnoPage } from './pages/alumnos/MisMateriasPage';
 import { MisExamenesPage } from './pages/alumnos/MisExamenesPage';
 
+// En "/" está el panel de secretaría: los demás roles van a su propia página de inicio
+const Inicio = () => {
+  const ruta = authService.getRutaInicio();
+  return ruta === '/' ? <DashboardPageSecretary /> : <Navigate to={ruta} replace />;
+};
+
 function App() {
   return (
     <Router>
-      <Toaster position="bottom-right" richColors closeButton />
+      <Toaster position="top-right" richColors closeButton />
       <Routes>
         <Route path='/' element={<Layout />}>
 
           {/* Rutas del Módulo de Secretaría */}
-          <Route path='/' element={<DashboardPageSecretary />} />
+          <Route path='/' element={<Inicio />} />
           <Route path='materias' element={<SubjectsPage />} />
           <Route path='inscripciones' element={<EnrollmentsPage />} />
           <Route path='alumnos' element={<StudentsPage />} />
-          <Route path='facturacion' element={<InvoicePage />} />
           <Route path='inscripciones/nueva' element={<NewEnrollmentPage />} />
           <Route path='facturas' element={<FacturasPage />} />
+          <Route path='facturas/nueva' element={<NuevaFacturaPage />} />
           <Route path='conceptos' element={<ConceptosPage />} />
 
           {/* Rutas del Módulo de Profesor */}
