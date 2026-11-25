@@ -1,148 +1,229 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import {
     listarConceptos,
     crearConcepto,
     actualizarConcepto,
     eliminarConcepto,
-    mensajeDeError,
+    esConceptoDeInscripcion,
 } from './services/facturacionService';
 import { SearchInput } from '../../components/SearchInput';
-import { Modal } from '../../components/Modal';
 import { Table } from '../../components/Table';
+import { Modal } from '../../components/Modal';
+import { ConfirmModal } from '../../components/ConfirmModal';
+import { Spinner } from '../../components/Spinner';
+import { mensajeDeError } from '../../services/api';
 
-const TAMANO_PAGINA = 10;
-const HEADERS = ['Código', 'Nombre', 'Monto base', 'Acciones'];
+// Filas por página (= size enviado al backend), igual que en las otras páginas
+const CONCEPTOS_POR_PAGINA = 8;
 
-const guaranies = new Intl.NumberFormat('es-PY', {
-    style: 'currency',
-    currency: 'PYG',
-    maximumFractionDigits: 0,
-});
+// Límites de la base de datos: varchar(100) e int
+const LARGO_MAXIMO_NOMBRE = 100;
+const MONTO_MAXIMO = 2147483647;
 
-const inputClase =
-    'w-full mt-1 p-2.5 text-sm border border-(--borderColor-input) rounded-lg bg-gray-50 focus:bg-white focus:border-(--btnColor-primary) outline-none';
+// Valor a mostrar cuando un campo viene vacío
+const SIN_DATO = '—';
+
+const FORM_VACIO = { nombre: '', montoBase: '' };
+
+const INPUT_CLASS = "w-full px-3 py-2 rounded-lg border border-(--borderColor-input) bg-white text-sm focus:outline-none focus:border-(--btnColor-primary) disabled:bg-gray-100! disabled:text-gray-600 disabled:cursor-not-allowed";
+const LABEL_CLASS = "block text-xs font-bold text-gray-600 tracking-wider uppercase mb-2";
 
 // El código que se muestra (CON-001) se arma a partir del id interno
 const codigoConcepto = (id) => `CON-${String(id).padStart(3, '0')}`;
 
-const formularioVacio = () => ({ id: null, nombre: '', montoBase: '' });
+const formatearMonto = (monto) =>
+    monto === undefined || monto === null ? SIN_DATO : `Gs. ${Number(monto).toLocaleString('es-PY')}`;
 
 export const ConceptosPage = () => {
+    const [busqueda, setBusqueda] = useState('');   // lo que se escribe en el input
+    const [filtro, setFiltro] = useState('');       // lo que se manda al backend (con debounce)
     const [conceptos, setConceptos] = useState([]);
-    const [pagina, setPagina] = useState(0);
-    const [totalPaginas, setTotalPaginas] = useState(1);
-    const [totalElementos, setTotalElementos] = useState(0);
-    const [busqueda, setBusqueda] = useState('');
-    const [filtro, setFiltro] = useState('');
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
-    const [aviso, setAviso] = useState(null);
+    const [page, setPage] = useState(0); // 0-based, como lo espera Spring
+    const [totalPages, setTotalPages] = useState(1);
+    const [totalElements, setTotalElements] = useState(0);
+    const [recarga, setRecarga] = useState(0);      // incrementarlo vuelve a pedir la página actual
 
-    const [formulario, setFormulario] = useState(null); // null = modal cerrado
-    const [errorForm, setErrorForm] = useState(null);
+    // Modales
+    const [formAbierto, setFormAbierto] = useState(false);
+    const [conceptoEditar, setConceptoEditar] = useState(null); // null = crear, objeto = editar
+    const [form, setForm] = useState(FORM_VACIO);
     const [guardando, setGuardando] = useState(false);
+    const [conceptoEliminar, setConceptoEliminar] = useState(null);
+    const [eliminando, setEliminando] = useState(false);
 
-    const mostrarAviso = (tipo, texto) => {
-        setAviso({ tipo, texto });
-        setTimeout(() => setAviso(null), 3500);
-    };
+    const headers = ['Código', 'Nombre', 'Monto base', 'Acciones'];
 
     // La búsqueda espera un momento antes de consultar, para no pedir en cada tecla
     useEffect(() => {
         const espera = setTimeout(() => {
             setFiltro(busqueda);
-            setPagina(0);
+            setPage(0);
         }, 400);
         return () => clearTimeout(espera);
     }, [busqueda]);
 
-    const cargar = useCallback(async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            const resultado = await listarConceptos({ page: pagina, size: TAMANO_PAGINA, nombre: filtro });
-            if (resultado.content.length === 0 && pagina > 0) {
-                setPagina(pagina - 1); // se borró el último de la página: volver a la anterior
-                return;
-            }
-            setConceptos(resultado.content);
-            setTotalPaginas(resultado.totalPages);
-            setTotalElementos(resultado.totalElements);
-        } catch (err) {
-            setConceptos([]);
-            setError(mensajeDeError(err));
-        } finally {
-            setLoading(false);
-        }
-    }, [pagina, filtro]);
-
+    // Conceptos: se vuelven a pedir al cambiar de página, de filtro o al forzar una recarga
     useEffect(() => {
+        // Evita actualizar el estado con una respuesta vieja (cambio rápido de página,
+        // desmontaje del componente o doble ejecución de StrictMode)
+        let ignore = false;
+
+        const cargar = async () => {
+            setLoading(true);
+            setError(null);
+            try {
+                const data = await listarConceptos({ page, size: CONCEPTOS_POR_PAGINA, nombre: filtro });
+                if (ignore) return;
+                setConceptos(data.content);
+                setTotalPages(Math.max(1, data.totalPages));
+                setTotalElements(data.totalElements);
+            } catch (err) {
+                if (ignore) return;
+                console.error('Error al cargar conceptos:', err);
+                const mensaje = err.response?.status === 403
+                    ? 'No tenés permisos para ver los conceptos'
+                    : 'No se pudieron cargar los conceptos';
+                setConceptos([]);
+                setError(mensaje);
+                toast.error(mensaje);
+            } finally {
+                if (!ignore) setLoading(false);
+            }
+        };
         cargar();
-    }, [cargar]);
 
-    const abrirNuevo = () => {
-        setErrorForm(null);
-        setFormulario(formularioVacio());
+        return () => { ignore = true; };
+    }, [page, filtro, recarga]);
+
+    // ------------------------------ CREAR / EDITAR ------------------------------
+
+    // "Materia" y "Examen" se buscan por su nombre: solo se les puede cambiar el monto
+    const nombreFijo = esConceptoDeInscripcion(conceptoEditar?.nombre);
+
+    const abrirCrear = () => {
+        setConceptoEditar(null);
+        setForm(FORM_VACIO);
+        setFormAbierto(true);
     };
 
-    const abrirEdicion = (c) => {
-        setErrorForm(null);
-        setFormulario({ id: c.idConcepto, nombre: c.nombre ?? '', montoBase: c.montoBase ?? '' });
+    const abrirEditar = (concepto) => {
+        setConceptoEditar(concepto);
+        setForm({
+            nombre: concepto.nombre || '',
+            montoBase: concepto.montoBase != null ? String(concepto.montoBase) : '',
+        });
+        setFormAbierto(true);
     };
 
-    const cambiarCampo = (campo, valor) => setFormulario((prev) => ({ ...prev, [campo]: valor }));
+    const cerrarFormulario = () => {
+        if (guardando) return;
+        setFormAbierto(false);
+        setConceptoEditar(null);
+        setForm(FORM_VACIO);
+    };
 
-    const guardar = async (e) => {
+    const handleInputChange = (e) => {
+        setForm({ ...form, [e.target.name]: e.target.value });
+    };
+
+    const handleGuardar = async (e) => {
         e.preventDefault();
-        const editando = Boolean(formulario.id);
-        const nombre = formulario.nombre.trim();
-        const monto = Number(formulario.montoBase);
 
-        if (!nombre) return setErrorForm('Escribí el nombre del concepto.');
-        if (formulario.montoBase === '' || Number.isNaN(monto) || monto < 0) {
-            return setErrorForm('El monto base debe ser un número mayor o igual a 0.');
+        const nombre = form.nombre.trim();
+        const montoBase = Number(form.montoBase);
+
+        if (!nombre) {
+            toast.warning('El nombre del concepto es obligatorio.');
+            return;
+        }
+        if (form.montoBase === '' || !Number.isInteger(montoBase) || montoBase < 0) {
+            toast.warning('El monto base debe ser un número entero mayor o igual a 0.');
+            return;
+        }
+        if (montoBase > MONTO_MAXIMO) {
+            toast.warning(`El monto base no puede superar ${formatearMonto(MONTO_MAXIMO)}.`);
+            return;
         }
 
         setGuardando(true);
-        setErrorForm(null);
         try {
-            const datos = { nombre, montoBase: Math.round(monto) };
-            if (editando) await actualizarConcepto(formulario.id, datos);
-            else await crearConcepto(datos);
-            setFormulario(null);
-            mostrarAviso('ok', editando ? 'Cambios guardados.' : 'Concepto guardado.');
-            await cargar();
+            // El backend rechaza los nombres repetidos
+            if (conceptoEditar) {
+                await actualizarConcepto(conceptoEditar.idConcepto, { nombre, montoBase });
+                toast.success('Concepto actualizado correctamente.');
+            } else {
+                await crearConcepto({ nombre, montoBase });
+                toast.success('Concepto creado correctamente.');
+                // El concepto nuevo puede quedar en cualquier página: volvemos a la primera
+                setPage(0);
+            }
+            setRecarga(r => r + 1);
+            setFormAbierto(false);
+            setConceptoEditar(null);
+            setForm(FORM_VACIO);
         } catch (err) {
-            setErrorForm(mensajeDeError(err));
+            console.error('Error al guardar el concepto:', err);
+            const mensaje = err.response?.status === 403
+                ? 'No tenés permisos para guardar conceptos.'
+                : mensajeDeError(err, 'No se pudo guardar el concepto.');
+            toast.error(mensaje);
         } finally {
             setGuardando(false);
         }
     };
 
-    const eliminar = async (c) => {
-        const confirmado = window.confirm(
-            `¿Eliminar el concepto "${c.nombre}"? Dejará de aparecer en las listas.`
-        );
-        if (!confirmado) return;
+    // --------------------------------- ELIMINAR ---------------------------------
+
+    const handleEliminar = async () => {
+        setEliminando(true);
         try {
-            await eliminarConcepto(c.idConcepto);
-            mostrarAviso('ok', 'Concepto eliminado.');
-            await cargar();
+            await eliminarConcepto(conceptoEliminar.idConcepto);
+            toast.success('Concepto eliminado correctamente.');
+            setConceptoEliminar(null);
+            // Si era el último de la página, volvemos a la anterior
+            if (conceptos.length === 1 && page > 0) {
+                setPage(p => p - 1);
+            } else {
+                setRecarga(r => r + 1);
+            }
         } catch (err) {
-            mostrarAviso('error', mensajeDeError(err));
+            console.error('Error al eliminar el concepto:', err);
+            const mensaje = err.response?.status === 403
+                ? 'No tenés permisos para eliminar conceptos.'
+                : mensajeDeError(err, 'No se pudo eliminar el concepto.');
+            toast.error(mensaje);
+        } finally {
+            setEliminando(false);
         }
     };
 
-    // Datos para el componente Table compartido
-    const filas = conceptos.map((c) => [codigoConcepto(c.idConcepto), c.nombre, guaranies.format(c.montoBase ?? 0)]);
+    // ---------------------------------- TABLA -----------------------------------
 
-    // la primera celda de cada fila es el código del concepto
-    const buscarConcepto = (fila) => conceptos.find((c) => codigoConcepto(c.idConcepto) === fila[0]);
+    // Filas para la tabla: mismo orden que conceptos, así el índice identifica al concepto
+    const filas = conceptos.map((c) => [
+        codigoConcepto(c.idConcepto),
+        c.nombre || SIN_DATO,
+        formatearMonto(c.montoBase),
+    ]);
 
-    const acciones = [
-        { type: 'edit', title: 'Editar', onClick: (fila) => abrirEdicion(buscarConcepto(fila)) },
-        { type: 'delete', title: 'Eliminar', onClick: (fila) => eliminar(buscarConcepto(fila)) },
+    const tableActions = [
+        { type: 'edit', title: 'Editar', onClick: (_, index) => abrirEditar(conceptos[index]) },
+        {
+            type: 'delete',
+            title: 'Eliminar',
+            show: (_, index) => !esConceptoDeInscripcion(conceptos[index]?.nombre),
+            onClick: (_, index) => setConceptoEliminar(conceptos[index]),
+        },
     ];
+
+    const notaNombre = () => {
+        if (nombreFijo) return 'Las inscripciones usan este concepto: solo se puede cambiar su monto.';
+        if (conceptoEditar) return 'El nombre también cambia en las facturas ya emitidas. Los montos cobrados no.';
+        return null;
+    };
 
     return (
         <div className="container-page">
@@ -151,127 +232,99 @@ export const ConceptosPage = () => {
                 <h2>Catálogo de cuotas, matrículas y derechos que se pueden facturar</h2>
             </div>
 
-            {aviso && (
-                <div
-                    role="status"
-                    className={`px-4 py-3 rounded-xl text-sm font-medium border ${
-                        aviso.tipo === 'ok'
-                            ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
-                            : 'bg-rose-50 border-rose-300 text-rose-800'
-                    }`}
-                >
-                    {aviso.texto}
-                </div>
-            )}
-
-            {error && (
-                <div className="bg-rose-50 border border-rose-300 text-rose-800 px-4 py-3 rounded-xl flex items-center justify-between shadow-sm">
-                    <div className="flex items-center gap-2">
-                        <i className="icon-[heroicons--exclamation-circle] text-rose-600 text-xl"></i>
-                        <span className="text-sm">{error}</span>
-                    </div>
-                    <button
-                        type="button"
-                        onClick={cargar}
-                        className="text-xs bg-rose-600 text-white px-2 py-1 rounded-md hover:bg-rose-700 font-semibold cursor-pointer"
-                    >
-                        Reintentar
-                    </button>
-                </div>
-            )}
-
             <div className="flex flex-row justify-between items-center gap-4">
                 <SearchInput
+                    placeholder="Buscar por nombre"
                     value={busqueda}
                     onChange={(e) => setBusqueda(e.target.value)}
-                    placeholder="Buscar por nombre..."
                 />
-                <div className="flex items-center gap-3 shrink-0">
-                    <button
-                        type="button"
-                        onClick={abrirNuevo}
-                        className="flex items-center bg-(--btnColor-primary) text-(--textColor-secondary) rounded-xl p-2 px-4 shadow-md hover:bg-(--btnColor-primary-hover) transition-colors cursor-pointer shrink-0"
-                    >
-                        <i className="icon-[heroicons--plus] text-white mr-2"></i>
-                        Nuevo concepto
-                    </button>
-                </div>
+                <button className="btn-primary cursor-pointer" onClick={abrirCrear}>
+                    <i className="icon-[heroicons--plus] text-white mr-2"></i>
+                    Nuevo concepto
+                </button>
             </div>
 
-            {loading && (
-                <div className="flex items-center gap-2 text-sm text-(--btnColor-primary)">
-                    <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
-                    <span>Cargando conceptos...</span>
-                </div>
-            )}
-
             <Table
-                headers={HEADERS}
+                headers={headers}
                 data={filas}
-                actions={acciones}
-                currentPage={pagina + 1}
-                totalPages={totalPaginas}
-                totalElements={totalElementos}
-                onPrevPage={() => setPagina((p) => Math.max(0, p - 1))}
-                onNextPage={() => setPagina((p) => (p + 1 < totalPaginas ? p + 1 : p))}
+                actions={tableActions}
+                loading={loading}
+                emptyMessage={error || 'No se encontraron conceptos'}
+                currentPage={page + 1}
+                totalPages={totalPages}
+                totalElements={totalElements}
+                onPrevPage={() => setPage(p => Math.max(0, p - 1))}
+                onNextPage={() => setPage(p => Math.min(totalPages - 1, p + 1))}
             />
 
+            {/* -------------------------- CREAR / EDITAR ------------------------- */}
             <Modal
-                isOpen={formulario !== null}
-                onClose={() => setFormulario(null)}
-                title={formulario?.id ? 'Editar concepto' : 'Nuevo concepto'}
+                isOpen={formAbierto}
+                onClose={cerrarFormulario}
+                title={conceptoEditar ? 'Editar concepto' : 'Nuevo concepto'}
             >
-                {formulario && (
-                    <form onSubmit={guardar} className="p-6 flex flex-col gap-4">
+                <form onSubmit={handleGuardar} className="flex flex-col" noValidate>
+                    <div className="p-6 bg-(--bgColor-main) flex flex-col gap-5">
                         <div>
-                            <label htmlFor="concepto-nombre" className="text-xs font-bold text-gray-500 uppercase">
-                                Nombre
-                            </label>
+                            <label htmlFor="nombre" className={LABEL_CLASS}>Nombre</label>
                             <input
-                                id="concepto-nombre"
+                                id="nombre"
                                 type="text"
-                                value={formulario.nombre}
-                                onChange={(e) => cambiarCampo('nombre', e.target.value)}
-                                placeholder="Ej.: Cuota 1"
-                                className={inputClase}
+                                name="nombre"
+                                maxLength={LARGO_MAXIMO_NOMBRE}
+                                value={form.nombre}
+                                onChange={handleInputChange}
+                                placeholder="Ej. Cuota 1"
+                                className={INPUT_CLASS}
+                                disabled={guardando || nombreFijo}
                             />
+                            {notaNombre() && <p className="mt-1.5 text-xs text-gray-500">{notaNombre()}</p>}
                         </div>
                         <div>
-                            <label htmlFor="concepto-monto" className="text-xs font-bold text-gray-500 uppercase">
-                                Monto base (Gs.)
-                            </label>
+                            <label htmlFor="montoBase" className={LABEL_CLASS}>Monto base (Gs.)</label>
                             <input
-                                id="concepto-monto"
+                                id="montoBase"
                                 type="number"
+                                name="montoBase"
                                 min="0"
-                                value={formulario.montoBase}
-                                onChange={(e) => cambiarCampo('montoBase', e.target.value)}
+                                step="1"
+                                value={form.montoBase}
+                                onChange={handleInputChange}
                                 placeholder="150000"
-                                className={inputClase}
+                                className={INPUT_CLASS}
+                                disabled={guardando}
                             />
                         </div>
+                    </div>
 
-                        {errorForm && (
-                            <p role="alert" className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">
-                                {errorForm}
-                            </p>
-                        )}
-
-                        <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
-                            <button
-                                type="button"
-                                onClick={() => setFormulario(null)}
-                                className="px-4 py-2 text-xs font-medium text-gray-600 hover:text-black cursor-pointer"
-                            >
-                                Cancelar
-                            </button>
-                            <button type="submit" disabled={guardando} className="btn-primary text-xs px-4 py-2">
-                                {guardando ? 'Guardando...' : formulario.id ? 'Guardar cambios' : 'Guardar concepto'}
-                            </button>
-                        </div>
-                    </form>
-                )}
+                    <div className="px-6 py-4 bg-white border-t border-(--borderColor-input) flex justify-end items-center gap-4">
+                        <button
+                            type="button"
+                            onClick={cerrarFormulario}
+                            disabled={guardando}
+                            className="text-sm font-medium text-gray-600 hover:text-gray-800 transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                            Cancelar
+                        </button>
+                        <button type="submit" disabled={guardando} className="btn-primary cursor-pointer flex items-center gap-2 disabled:opacity-60">
+                            {guardando && <Spinner className="h-4 w-4 text-white" />}
+                            {conceptoEditar ? 'Guardar cambios' : 'Crear concepto'}
+                        </button>
+                    </div>
+                </form>
             </Modal>
+
+            {/* ----------------------------- ELIMINAR ---------------------------- */}
+            <ConfirmModal
+                isOpen={Boolean(conceptoEliminar)}
+                onClose={() => setConceptoEliminar(null)}
+                onConfirm={handleEliminar}
+                loading={eliminando}
+                title="Eliminar concepto"
+                message={<>¿Seguro que querés eliminar el concepto <b>{conceptoEliminar?.nombre}</b>?</>}
+                warning="Ya no se va a poder elegir al crear facturas. Las facturas ya emitidas no se modifican."
+                confirmText="Eliminar"
+            />
         </div>
     );
 };
