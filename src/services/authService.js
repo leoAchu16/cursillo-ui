@@ -1,5 +1,12 @@
 import api, { setStoredToken, getLoggedUser } from './api';
 
+// Página de inicio de cada rol
+const INICIO_POR_ROL = {
+    SECRETARIA: '/',
+    PROFESOR: '/profesor/dashboard',
+    ALUMNO: '/alumno/tablero',
+};
+
 export const authService = {
 
 
@@ -44,6 +51,12 @@ export const authService = {
      * @returns 
      */
     getCurrentUser: () => { return getLoggedUser(); },
+
+    /**
+     * retorna la ruta de inicio del usuario actual, o /login si no tiene un rol conocido
+     * @returns
+     */
+    getRutaInicio: () => { return INICIO_POR_ROL[getLoggedUser()?.rol] || '/login'; },
 
     /**
      * verifica si hay sesion activa
