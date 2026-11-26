@@ -51,6 +51,16 @@ export const actualizarInscripcion = async (id, dto) => {
   return response.data;
 };
 
+/**
+ * Precio de inscribirse a una materia y a un examen: { materia, examen } (null si no está configurado).
+ * Lo pueden leer todos los roles, a diferencia de /conceptos.
+ */
+export const obtenerPrecios = async () => {
+  const { data } = await api.get('/inscripciones/precios');
+  return data;
+};
+
+// Secretaría elimina cualquiera; un alumno solo cancela las suyas mientras estén pendientes
 export const eliminarInscripcion = async (id) => {
   const response = await api.delete(`/inscripciones/${id}`);
   return response.data;
@@ -65,6 +75,46 @@ export const listarDescuentos = async ({ size = 100 } = {}) => {
   return Array.isArray(data?.content) ? data.content : [];
 };
 
+/**
+ * Descuentos activos paginados, por nombre. Devuelve { content, totalPages, totalElements }.
+ * `nombre` filtra en el backend (contiene, sin distinguir mayúsculas). Solo SECRETARIA.
+ */
+export const listarDescuentosPaginado = async ({ page = 0, size = 10, nombre = '' } = {}) => {
+  const params = { page, size, sort: 'nombre,idDescuento,asc' };
+  if (nombre.trim()) params.nombreDescuento = nombre.trim();
+  const { data } = await api.get('/descuentos', { params });
+  const content = Array.isArray(data?.content) ? data.content : [];
+  return {
+    content,
+    totalPages: data?.page?.totalPages ?? data?.totalPages ?? 1,
+    totalElements: data?.page?.totalElements ?? data?.totalElements ?? content.length,
+  };
+};
+
+export const crearDescuento = async (dto) => {
+  const { data } = await api.post('/descuentos', dto);
+  return data;
+};
+
+export const actualizarDescuento = async (id, dto) => {
+  const { data } = await api.put(`/descuentos/${id}`, dto);
+  return data;
+};
+
+// Borrado lógico: las inscripciones que lo tienen conservan su total
+export const eliminarDescuento = async (id) => {
+  await api.delete(`/descuentos/${id}`);
+};
+
+/**
+ * Aplica un descuento a una inscripción pendiente y recalcula su total (idDescuento null lo quita).
+ * Solo SECRETARIA. Devuelve la inscripción actualizada.
+ */
+export const aplicarDescuento = async (idInscripcion, idDescuento) => {
+  const { data } = await api.patch(`/inscripciones/${idInscripcion}/descuento`, { idDescuento });
+  return data;
+};
+
 export default {
   listarInscripciones,
   listarDescuentos,
@@ -73,4 +123,10 @@ export default {
   crearInscripcion,
   actualizarInscripcion,
   eliminarInscripcion,
+  obtenerPrecios,
+  listarDescuentosPaginado,
+  crearDescuento,
+  actualizarDescuento,
+  eliminarDescuento,
+  aplicarDescuento,
 };
