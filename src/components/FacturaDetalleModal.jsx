@@ -4,7 +4,8 @@ import { codigoFactura } from './codigoFactura';
 const SIN_DATO = '—';
 const LABEL_CLASS = "block text-xs font-bold text-gray-600 tracking-wider uppercase mb-1";
 
-export const FacturaDetalleModal = ({ factura, onClose, formatearFecha, formatearMonto }) => {
+// mostrarAlumno: false cuando las facturas son todas del mismo alumno (el logueado)
+export const FacturaDetalleModal = ({ factura, onClose, formatearFecha, formatearMonto, mostrarAlumno = true }) => {
     const detalles = factura?.detallesFactura ?? [];
 
     // Las líneas se guardan sin descuento: el descuento de la inscripción es la diferencia con el total
@@ -22,7 +23,7 @@ export const FacturaDetalleModal = ({ factura, onClose, formatearFecha, formatea
             <div className="p-6 bg-(--bgColor-main) flex flex-col gap-5 text-sm">
                 <dl className="grid grid-cols-2 gap-4">
                     {[
-                        ['Alumno', factura?.nombreAlumno],
+                        ...(mostrarAlumno ? [['Alumno', factura?.nombreAlumno]] : []),
                         ['RUC', factura?.ruc],
                         ['Método de pago', factura?.metodoPago],
                         ['Fecha de emisión', formatearFecha(factura?.fechaEmision)],
