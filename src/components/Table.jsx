@@ -34,7 +34,9 @@ export const Table = ({
         "delete": "icon-[heroicons--trash]",
         "view": "icon-[heroicons--eye]",
         "save": "icon-[heroicons--check]",
-        "invoice": "icon-[heroicons--banknotes]"
+        "invoice": "icon-[heroicons--banknotes]",
+        "add": "icon-[heroicons--plus-circle]",
+        "discount": "icon-[heroicons--receipt-percent]"
     }
 
     //Agreguen aca los estados que necesiten para que se muestren en la tabla como badges
@@ -42,11 +44,14 @@ export const Table = ({
         PAGADO: { label: 'PAGADO', className: 'badge badge-success' },
         PENDIENTE: { label: 'PENDIENTE', className: 'badge badge-warning' },
         MATERIA: { label: 'MATERIA', className: 'badge badge-info' },
-        EXAMEN: { label: 'EXAMEN', className: 'badge badge-success' },
+        EXAMEN: { label: 'EXAMEN', className: 'badge badge-purple' },
+        APROBADO: { label: 'APROBADO', className: 'badge badge-success' },
+        REPROBADO: { label: 'REPROBADO', className: 'badge badge-danger' },
+        AUSENTE: { label: 'AUSENTE', className: 'badge badge-orange' },
         ACTIVO: { label: 'ACTIVO', className: 'badge badge-success' },
-        INACTIVO: { label: 'INACTIVO', className: 'badge badge-error' },
-        ANULADO: { label: 'ANULADO', className: 'badge badge-error' },
-        CANCELADO: { label: 'CANCELADO', className: 'badge badge-error' }
+        INACTIVO: { label: 'INACTIVO', className: 'badge badge-neutral' },
+        ANULADO: { label: 'ANULADO', className: 'badge badge-danger' },
+        CANCELADO: { label: 'CANCELADO', className: 'badge badge-danger' }
     }
 
     const renderBadge = (value) => {
