@@ -36,7 +36,11 @@ export const Table = ({
         "save": "icon-[heroicons--check]",
         "invoice": "icon-[heroicons--banknotes]",
         "add": "icon-[heroicons--plus-circle]",
-        "discount": "icon-[heroicons--receipt-percent]"
+        "discount": "icon-[heroicons--receipt-percent]",
+        "grade": "icon-[heroicons--academic-cap]",
+        "students": "icon-[heroicons--users]",
+        "exams": "icon-[heroicons--clipboard-document-check]",
+        "results": "icon-[heroicons--chart-bar]"
     }
 
     //Agreguen aca los estados que necesiten para que se muestren en la tabla como badges
@@ -48,6 +52,10 @@ export const Table = ({
         APROBADO: { label: 'APROBADO', className: 'badge badge-success' },
         REPROBADO: { label: 'REPROBADO', className: 'badge badge-danger' },
         AUSENTE: { label: 'AUSENTE', className: 'badge badge-orange' },
+        'SIN NOTA': { label: 'SIN NOTA', className: 'badge badge-neutral' },
+        'PRÓXIMO': { label: 'PRÓXIMO', className: 'badge badge-info' },
+        'POR CALIFICAR': { label: 'POR CALIFICAR', className: 'badge badge-orange' },
+        CALIFICADO: { label: 'CALIFICADO', className: 'badge badge-success' },
         ACTIVO: { label: 'ACTIVO', className: 'badge badge-success' },
         INACTIVO: { label: 'INACTIVO', className: 'badge badge-neutral' },
         ANULADO: { label: 'ANULADO', className: 'badge badge-danger' },
