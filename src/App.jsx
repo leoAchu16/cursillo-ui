@@ -1,5 +1,5 @@
 import './App.css';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { Toaster } from 'sonner';
 
 import { Layout } from './components/Layout';
@@ -14,9 +14,7 @@ import { DashboardPageSecretary } from './pages/DashboardPageSecretary';
 import { NewEnrollmentPage } from './pages/NewEnrollmentPage';
 import { DashboardPageTeacher } from './pages/profesores/DashboardPageTeacher';
 import { MisMateriasPage } from './pages/profesores/MisMateriasPage';
-import { GestionExamenesPage } from './pages/profesores/GestionDeExamenesPage';
 import { DetalleMateriaPage } from './pages/profesores/DetalleMateriaPage';
-import { SeleccionMateriaExamenPage } from './pages/profesores/SeleccionMateriaExamenPage';
 import { CalificarExamenPage } from './pages/profesores/CalificarExamenPage';
 import { ResultadosExamenPage } from './pages/profesores/ResultadosExamenPage';
 import { FacturasPage } from './pages/facturacion/FacturasPage';
@@ -34,6 +32,9 @@ const Inicio = () => {
   const ruta = authService.getRutaInicio();
   return ruta === '/' ? <DashboardPageSecretary /> : <Navigate to={ruta} replace />;
 };
+
+// La gestión de exámenes de una materia ahora está en la pantalla de la materia
+const RedirigirAMateria = () => <Navigate to={`/materias/${useParams().materiaId}`} replace />;
 
 function App() {
   return (
@@ -60,8 +61,9 @@ function App() {
           <Route element={<RutaPorRol rol='PROFESOR' />}>
             <Route path='profesor/dashboard' element={<DashboardPageTeacher />} />
             <Route path='materias/mis-materias' element={<MisMateriasPage />} />
-            <Route path='materias/examenes' element={<SeleccionMateriaExamenPage />} />
-            <Route path='materias/examenes/:materiaId' element={<GestionExamenesPage />} />
+            {/* Rutas viejas: los exámenes se gestionan desde la pantalla de cada materia */}
+            <Route path='materias/examenes' element={<Navigate to='/materias/mis-materias' replace />} />
+            <Route path='materias/examenes/:materiaId' element={<RedirigirAMateria />} />
             <Route path='materias/:materiaId' element={<DetalleMateriaPage />} />
             <Route path='materias/examenes/:materiaId/calificar' element={<CalificarExamenPage />} />
             <Route path='materias/examenes/:materiaId/resultados/:examenId' element={<ResultadosExamenPage />} />
