@@ -1,170 +1,210 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listarMateriasProfesor } from '../../services/notasService';
-import { getProfesorId, getStoredToken } from '../../services/api';
-import { JwtTokenModal } from '../../components/JwtTokenModal';
+import { toast } from 'sonner';
 import { SearchInput } from '../../components/SearchInput';
+import { Spinner } from '../../components/Spinner';
+import { getLoggedUser } from '../../services/api';
+import { listarInscripcionesPaginado } from '../../services/inscripcionesService';
+import { listarMateriasDeProfesor, listarExamenesPaginado } from '../../services/notasService';
+
+// Se cargan todos los datos de una vez para cruzarlos; la búsqueda se resuelve acá
+const MAX_REGISTROS = 1000;
+
+// Valor a mostrar cuando un campo viene vacío o no se pudo cargar
+const SIN_DATO = '—';
+
+const ETIQUETA_DIA = {
+    LUNES: 'Lunes', MARTES: 'Martes', MIERCOLES: 'Miércoles', JUEVES: 'Jueves',
+    VIERNES: 'Viernes', SABADO: 'Sábado', DOMINGO: 'Domingo',
+};
+const formatearDia = (dia) => ETIQUETA_DIA[dia] || dia || SIN_DATO;
+
+// "2026-11-20" -> "20/11/2026". Sin new Date(), que correría un día por la zona horaria.
+const formatearFecha = (fecha) => {
+    if (!fecha) return SIN_DATO;
+    const [anio, mes, dia] = String(fecha).slice(0, 10).split('-');
+    return anio && mes && dia ? `${dia}/${mes}/${anio}` : String(fecha);
+};
+
+const formatearHora = (hora) => (hora ? String(hora).slice(0, 5) : SIN_DATO); // "18:00:00" -> "18:00"
+
+// Fecha y hora local de ahora como "2026-11-25 18:30", para comparar con fecha + hora del examen
+const ahoraLocal = () => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 16).replace('T', ' ');
+};
+const momentoDe = (examen) => `${examen.fecha ?? ''} ${formatearHora(examen.hora)}`;
+
+// Cada consulta es independiente: si falla una que no es la de materias, la tabla se muestra igual
+const CONSULTAS = {
+    materias: {
+        nombre: 'tus materias',
+        pedir: () => listarMateriasDeProfesor({ idProfesor: getLoggedUser()?.id, size: MAX_REGISTROS }),
+    },
+    examenes: {
+        nombre: 'los exámenes',
+        pedir: () => listarExamenesPaginado({ page: 0, size: MAX_REGISTROS }),
+    },
+    inscripciones: {
+        nombre: 'las inscripciones',
+        pedir: () => listarInscripcionesPaginado({ page: 0, size: MAX_REGISTROS }),
+    },
+};
+
+/**
+ * Sus materias por nombre, con la cantidad de alumnos inscriptos y el próximo examen de cada una.
+ * Si faltan exámenes o inscripciones, esos datos quedan en null.
+ */
+const armarMaterias = ({ materias, examenes, inscripciones }) => {
+    const alumnosPorMateria = new Map();
+    (inscripciones ?? []).forEach((i) => (i.detallesInscripcion || []).forEach((det) => {
+        if (det.tipoInscripcion !== 'MATERIA' || det.idMateria == null) return;
+        if (!alumnosPorMateria.has(det.idMateria)) alumnosPorMateria.set(det.idMateria, new Set());
+        alumnosPorMateria.get(det.idMateria).add(i.idAlumno);
+    }));
+
+    const ahora = ahoraLocal();
+    const proximoPorMateria = new Map();
+    (examenes ?? [])
+        .filter((e) => momentoDe(e) > ahora)
+        .sort((a, b) => momentoDe(a).localeCompare(momentoDe(b)))
+        .forEach((e) => { if (!proximoPorMateria.has(e.idMateria)) proximoPorMateria.set(e.idMateria, e); });
+
+    return materias
+        .map((m) => ({
+            ...m,
+            alumnos: inscripciones ? (alumnosPorMateria.get(m.idMateria)?.size ?? 0) : null,
+            // undefined: no se pudo saber; null: no tiene
+            proximo: examenes ? (proximoPorMateria.get(m.idMateria) ?? null) : undefined,
+        }))
+        .sort((a, b) => (a.nombreMateria ?? '').localeCompare(b.nombreMateria ?? '', 'es'));
+};
+
+const textoProximo = (proximo) => {
+    if (proximo === undefined) return SIN_DATO;
+    if (proximo === null) return 'Sin exámenes próximos';
+    return `${proximo.titulo || 'Examen'} · ${formatearFecha(proximo.fecha)}`;
+};
 
 export const MisMateriasPage = () => {
     const navigate = useNavigate();
+
     const [materias, setMaterias] = useState([]);
-    const [busqueda, setBusqueda] = useState('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
-
-    const cargarMaterias = async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            const idProfesor = getProfesorId();
-            const data = await listarMateriasProfesor(idProfesor);
-            const lista = Array.isArray(data) ? data : data?.content || data?.data || [];
-            setMaterias(lista);
-        } catch (err) {
-            console.error('Error al cargar materias:', err);
-            const status = err.response?.status;
-            if (status === 401 || status === 403) {
-                setError('Error de autorización (403/401): Tu sesión no tiene un token JWT válido o ha expirado.');
-            } else if (err.message === 'Network Error') {
-                setError('Error de conexión con el Gateway (http://localhost:8084). Verifica que el proxy y los servicios estén activos.');
-            } else {
-                setError(err.response?.data?.message || err.message || 'Error al conectar con el servidor.');
-            }
-        } finally {
-            setLoading(false);
-        }
-    };
+    const [busqueda, setBusqueda] = useState('');
 
     useEffect(() => {
-        cargarMaterias();
+        // Evita actualizar el estado si se sale de la página o por la doble ejecución de StrictMode
+        let ignore = false;
+
+        const cargar = async () => {
+            const claves = Object.keys(CONSULTAS);
+            const respuestas = await Promise.allSettled(claves.map((clave) => CONSULTAS[clave].pedir()));
+            if (ignore) return;
+
+            const cargados = {};
+            const fallidos = [];
+            respuestas.forEach((respuesta, i) => {
+                if (respuesta.status === 'fulfilled') {
+                    cargados[claves[i]] = respuesta.value.content;
+                } else {
+                    console.error(`Error al cargar ${CONSULTAS[claves[i]].nombre}:`, respuesta.reason);
+                    fallidos.push(CONSULTAS[claves[i]].nombre);
+                }
+            });
+
+            if (!cargados.materias) {
+                setError('No se pudieron cargar tus materias');
+                toast.error('No se pudieron cargar tus materias.');
+            } else {
+                setMaterias(armarMaterias(cargados));
+                // Un solo aviso, aunque fallen varias
+                if (fallidos.length > 0) toast.warning(`No se pudieron cargar ${fallidos.join(', ')}.`);
+            }
+            setLoading(false);
+        };
+        cargar();
+
+        return () => { ignore = true; };
     }, []);
 
-    const materiasFiltradas = materias.filter((m) => {
-        const nombre = (m.nombre || m.nombreMateria || m.titulo || '').toLowerCase();
-        return nombre.includes(busqueda.toLowerCase());
-    });
+    // --------------------------------- TARJETAS ---------------------------------
 
-    const hasToken = Boolean(getStoredToken());
+    const texto = busqueda.trim().toLowerCase();
+    const filtradas = materias.filter((m) => (m.nombreMateria ?? '').toLowerCase().includes(texto));
+
+    const mensajeVacio = error || (materias.length === 0 ? 'No tenés materias asignadas' : 'No se encontraron materias');
 
     return (
         <div className="container-page">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-                <div>
-                    <h1>Mis Materias</h1>
-                    <h2>Resumen de tus formaciones activas y progreso de estudiantes.</h2>
-                </div>
-
-                <div className="flex items-center gap-3">
-                    <button
-                        onClick={() => setIsTokenModalOpen(true)}
-                        className={`flex items-center text-xs font-semibold px-3 py-2 rounded-xl border transition-colors cursor-pointer ${
-                            hasToken
-                                ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
-                                : 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100'
-                        }`}
-                        title="Configurar Token JWT"
-                    >
-                        <i className="icon-[heroicons--key] mr-1.5 text-base"></i>
-                        {hasToken ? 'Token JWT Activo' : 'Configurar Token JWT'}
-                    </button>
-                </div>
+            <div className="flex flex-col mt-[24px]">
+                <h1>Mis Materias</h1>
+                <h2>Materias que dictás. Elegí una para ver sus alumnos y exámenes.</h2>
             </div>
 
-            {loading && (
-                <div className="flex flex-col items-center justify-center p-12 bg-white rounded-xl shadow-sm border border-gray-100">
-                    <div className="w-10 h-10 border-4 border-(--btnColor-primary) border-t-transparent rounded-full animate-spin"></div>
-                    <p className="text-sm text-gray-500 mt-4 font-medium">Cargando tus materias...</p>
+            <div className="flex flex-row flex-wrap items-center gap-4">
+                <SearchInput
+                    placeholder="Buscar por nombre"
+                    value={busqueda}
+                    onChange={(e) => setBusqueda(e.target.value)}
+                />
+            </div>
+
+            {loading ? (
+                <div className="card items-center justify-center py-10 text-sm text-gray-500 flex-row gap-2">
+                    <Spinner className="h-4 w-4 text-(--btnColor-primary)" /> Cargando...
+                </div>
+            ) : filtradas.length === 0 ? (
+                <div className="card items-center text-center py-10 gap-2">
+                    <i className="icon-[heroicons--book-open] text-4xl text-gray-300"></i>
+                    <p className="text-sm text-gray-500 font-medium">{mensajeVacio}</p>
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {filtradas.map((m) => (
+                        // Toda la tarjeta es un botón: se puede abrir con el mouse o con el teclado
+                        <button
+                            key={m.idMateria}
+                            type="button"
+                            onClick={() => navigate(`/materias/${m.idMateria}`)}
+                            className="card h-full text-left gap-3 cursor-pointer hover:border-(--btnColor-primary) hover:shadow-lg transition-all group"
+                        >
+                            <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-11 h-11 rounded-full bg-teal-50 group-hover:bg-(--btnColor-primary) text-(--btnColor-primary) group-hover:text-white flex items-center justify-center transition-colors shrink-0">
+                                    <i className="icon-[heroicons--academic-cap] text-2xl"></i>
+                                </div>
+                                <div className="flex flex-col min-w-0">
+                                    <span className="font-bold text-slate-800 group-hover:text-(--btnColor-primary) transition-colors truncate" title={m.nombreMateria}>
+                                        {m.nombreMateria || SIN_DATO}
+                                    </span>
+                                    <span className="text-xs text-gray-500">{formatearDia(m.dia)}</span>
+                                </div>
+                            </div>
+
+                            <dl className="flex flex-col gap-1.5 text-xs text-gray-600">
+                                <div className="flex items-center gap-2">
+                                    <i className="icon-[heroicons--users] text-base text-gray-400 shrink-0"></i>
+                                    <dt className="sr-only">Alumnos</dt>
+                                    <dd>
+                                        {m.alumnos == null ? SIN_DATO : <><b className="text-slate-700">{m.alumnos}</b> {m.alumnos === 1 ? 'alumno inscripto' : 'alumnos inscriptos'}</>}
+                                    </dd>
+                                </div>
+                                <div className="flex items-center gap-2 min-w-0">
+                                    <i className="icon-[heroicons--calendar-days] text-base text-gray-400 shrink-0"></i>
+                                    <dt className="sr-only">Próximo examen</dt>
+                                    <dd className="truncate" title={textoProximo(m.proximo)}>{textoProximo(m.proximo)}</dd>
+                                </div>
+                            </dl>
+
+                            <span className="text-xs font-bold text-(--btnColor-primary) mt-auto inline-flex items-center group-hover:translate-x-1 transition-transform">
+                                Ver alumnos y exámenes <i className="icon-[heroicons--arrow-right] ml-1"></i>
+                            </span>
+                        </button>
+                    ))}
                 </div>
             )}
-
-            {!loading && error && (
-                <div className="p-5 bg-red-50 border border-red-200 rounded-xl text-red-700 flex flex-col md:flex-row items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                        <i className="icon-[heroicons--exclamation-triangle] text-2xl text-red-600 shrink-0"></i>
-                        <div>
-                            <p className="font-bold text-sm">No se pudieron cargar las materias</p>
-                            <p className="text-xs text-red-600 mt-0.5">{error}</p>
-                        </div>
-                    </div>
-                    <div className="flex gap-2 shrink-0">
-                        <button
-                            onClick={() => setIsTokenModalOpen(true)}
-                            className="btn-primary !bg-amber-600 hover:!bg-amber-700 text-xs px-3 py-2"
-                        >
-                            <i className="icon-[heroicons--key] mr-1 text-sm"></i>
-                            Configurar Token
-                        </button>
-                        <button
-                            onClick={cargarMaterias}
-                            className="btn-primary !bg-red-600 hover:!bg-red-700 text-xs px-3 py-2"
-                        >
-                            <i className="icon-[heroicons--arrow-path] mr-1 text-sm"></i>
-                            Reintentar
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {!loading && !error && (
-                <>
-                    <div className="w-full md:w-80 mb-2">
-                        <SearchInput
-                            value={busqueda}
-                            onChange={(e) => setBusqueda(e.target.value)}
-                            placeholder="Buscar materia..."
-                            variant="default"
-                        />
-                    </div>
-
-                    {materiasFiltradas.length === 0 ? (
-                        <div className="card text-center py-12 items-center justify-center">
-                            <i className="icon-[heroicons--book-open] text-5xl text-gray-300 mb-2"></i>
-                            <h3 className="text-base text-gray-600 font-semibold">No se encontraron materias</h3>
-                            <p className="text-xs text-gray-400 mt-1">
-                                {busqueda ? 'No hay materias que coincidan con la búsqueda.' : 'Actualmente no tienes materias asignadas en el sistema.'}
-                            </p>
-                        </div>
-                    ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            {materiasFiltradas.map((materia, index) => {
-                                const id = materia.id || materia.idMateria || index + 1;
-                                const nombre = materia.nombre || materia.nombreMateria || materia.titulo || 'Materia';
-                                const anio = materia.anio || materia.anho || materia.periodo || new Date().getFullYear();
-                                const dias = materia.dias || materia.horario || materia.schedule || 'Días a convenir';
-
-                                return (
-                                    <div
-                                        key={id}
-                                        onClick={() => navigate(`/materias/${id}`)}
-                                        className="card cursor-pointer hover:border-(--btnColor-primary) hover:shadow-lg transition-all items-center text-center py-12 group"
-                                    >
-                                        <div className="w-12 h-12 rounded-full bg-teal-50 group-hover:bg-(--btnColor-primary) text-(--btnColor-primary) group-hover:text-white flex items-center justify-center transition-colors mb-3">
-                                            <i className="icon-[heroicons--academic-cap] text-2xl"></i>
-                                        </div>
-                                        <h3 className="text-sm tracking-widest text-slate-700 font-bold uppercase group-hover:text-(--btnColor-primary) transition-colors">
-                                            {nombre}
-                                        </h3>
-                                        <div className="text-xs text-gray-500 mt-3 space-y-1">
-                                            <p>Año: <span className="font-semibold text-slate-700">{anio}</span></p>
-                                            <p>Días: <span className="font-semibold text-slate-700">{dias}</span></p>
-                                        </div>
-                                        <span className="text-xs font-bold text-(--btnColor-primary) mt-4 inline-flex items-center group-hover:translate-x-1 transition-transform">
-                                            Ver Alumnos Inscritos <i className="icon-[heroicons--arrow-right] ml-1"></i>
-                                        </span>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </>
-            )}
-
-            <JwtTokenModal
-                isOpen={isTokenModalOpen}
-                onClose={() => setIsTokenModalOpen(false)}
-                onTokenSaved={() => cargarMaterias()}
-            />
         </div>
     );
 };
