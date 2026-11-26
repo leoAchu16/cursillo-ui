@@ -115,6 +115,15 @@ export const aplicarDescuento = async (idInscripcion, idDescuento) => {
   return data;
 };
 
+/**
+ * Alumnos inscriptos a una materia: [{ idAlumno, nombre, email, telefono, fechaInscripcion }].
+ * El profesor solo puede pedir los de sus materias (si no, 404); secretaría, los de todas.
+ */
+export const listarAlumnosDeMateria = async (idMateria) => {
+  const { data } = await api.get(`/inscripciones/materia/${idMateria}/alumnos`);
+  return Array.isArray(data) ? data : [];
+};
+
 export default {
   listarInscripciones,
   listarDescuentos,
@@ -124,6 +133,7 @@ export default {
   actualizarInscripcion,
   eliminarInscripcion,
   obtenerPrecios,
+  listarAlumnosDeMateria,
   listarDescuentosPaginado,
   crearDescuento,
   actualizarDescuento,
