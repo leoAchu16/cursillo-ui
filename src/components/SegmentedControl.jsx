@@ -1,5 +1,3 @@
-import { useState } from 'react'
-
 /**
  * 
  * @param {*} options -> Array de objetos con las opciones [{label: 'option1', value: 'option1'}, {label: 'option2', value: 'option2'}]
@@ -15,6 +13,7 @@ export const SegmentedControl = ({ options, value, onChange }) => {
                 return (
                     <button
                         key={option.value}
+                        type="button"
                         onClick={() => onChange(option.value)}
                         className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all duration-200 cursor-pointer
                             ${isSelected
