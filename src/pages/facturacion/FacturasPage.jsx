@@ -19,7 +19,7 @@ const SIN_DATO = '—';
 const BADGE_METODO = {
     EFECTIVO: 'badge badge-success',
     TARJETA: 'badge badge-info',
-    TRANSFERENCIA: 'badge badge-warning',
+    TRANSFERENCIA: 'badge badge-purple',
 };
 
 // "2026-11-20" -> "20/11/2026". Sin new Date(), que correría un día por la zona horaria.
