@@ -39,6 +39,14 @@ const formatearFecha = (fecha) => {
     return anio && mes && dia ? `${dia}/${mes}/${anio}` : String(fecha);
 };
 
+// "Hermanos (10 %)"; si no se conoce el nombre (inscripción vieja), solo "Descuento"
+const etiquetaDescuento = (i) => i?.nombreDescuento
+    ? `${i.nombreDescuento}${i.porcentajeDescuento != null ? ` (${i.porcentajeDescuento} %)` : ''}`
+    : 'Descuento';
+
+// Los costos se guardan sin descuento: lo descontado es la diferencia entre su suma y el total
+const subtotalDe = (i) => (i?.detallesInscripcion || []).reduce((acc, d) => acc + (d.costo ?? 0), 0);
+
 const formatearMonto = (monto) =>
     monto === undefined || monto === null ? SIN_DATO : `Gs. ${Number(monto).toLocaleString("es-PY")}`;
 
@@ -241,13 +249,18 @@ export const EnrollmentsPage = () => {
     };
 
     // Los costos se guardan sin descuento: el descuento se aplica sobre su suma (igual que el backend)
-    const subtotalDescuento = (inscripcionDescuento?.detallesInscripcion || []).reduce((acc, d) => acc + (d.costo ?? 0), 0);
+    const subtotalDescuento = subtotalDe(inscripcionDescuento);
     const descuentoElegido = (descuentos || []).find((d) => String(d.idDescuento) === idDescuentoElegido);
     // El que ya tenía puede haberse eliminado: sigue apareciendo, pero no se conoce su porcentaje
     const actualEliminado = inscripcionDescuento?.idDescuento != null
         && descuentos && !descuentos.some((d) => d.idDescuento === inscripcionDescuento.idDescuento);
     const sinCambios = idDescuentoElegido === (inscripcionDescuento?.idDescuento != null ? String(inscripcionDescuento.idDescuento) : "");
-    const montoDescuento = descuentoElegido ? Math.floor((subtotalDescuento * descuentoElegido.porcentaje) / 100) : 0;
+    // Sin cambios se muestra lo que ya tiene; si no, lo que quedaría con el elegido (mismo redondeo que el backend)
+    const montoDescuento = sinCambios
+        ? Math.max(0, subtotalDescuento - (inscripcionDescuento?.total ?? 0))
+        : descuentoElegido ? Math.floor((subtotalDescuento * descuentoElegido.porcentaje) / 100) : 0;
+    const etiquetaElegido = sinCambios ? etiquetaDescuento(inscripcionDescuento)
+        : descuentoElegido ? `${descuentoElegido.nombre} (${descuentoElegido.porcentaje} %)` : '';
     const totalNuevo = sinCambios ? inscripcionDescuento?.total : Math.max(0, subtotalDescuento - montoDescuento);
 
     const guardarDescuento = async () => {
@@ -395,9 +408,23 @@ export const EnrollmentsPage = () => {
                         )}
                     </div>
 
-                    <div className="flex justify-between items-center pt-3 border-t border-(--borderColor-input)">
-                        <span className="font-bold text-slate-800">Total</span>
-                        <span className="text-lg font-extrabold text-(--btnColor-primary)">{formatearMonto(inscripcionVer?.total)}</span>
+                    <div className="flex flex-col gap-1 pt-3 border-t border-(--borderColor-input)">
+                        {inscripcionVer?.idDescuento != null && (
+                            <>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-gray-500">Subtotal</span>
+                                    <span className="font-semibold text-slate-700">{formatearMonto(subtotalDe(inscripcionVer))}</span>
+                                </div>
+                                <div className="flex justify-between items-center gap-3">
+                                    <span className="text-gray-500 truncate">{etiquetaDescuento(inscripcionVer)}</span>
+                                    <span className="font-semibold text-slate-700 shrink-0">− {formatearMonto(Math.max(0, subtotalDe(inscripcionVer) - (inscripcionVer.total ?? 0)))}</span>
+                                </div>
+                            </>
+                        )}
+                        <div className="flex justify-between items-center">
+                            <span className="font-bold text-slate-800">Total</span>
+                            <span className="text-lg font-extrabold text-(--btnColor-primary)">{formatearMonto(inscripcionVer?.total)}</span>
+                        </div>
                     </div>
                 </div>
                 <div className="px-6 py-4 bg-white border-t border-(--borderColor-input) flex justify-end">
@@ -429,7 +456,7 @@ export const EnrollmentsPage = () => {
                         >
                             <option value="">Sin descuento</option>
                             {actualEliminado && (
-                                <option value={inscripcionDescuento.idDescuento}>Descuento actual (ya eliminado)</option>
+                                <option value={inscripcionDescuento.idDescuento}>{etiquetaDescuento(inscripcionDescuento)} · ya eliminado</option>
                             )}
                             {(descuentos || []).map((d) => (
                                 <option key={d.idDescuento} value={d.idDescuento}>{d.nombre} ({d.porcentaje} %)</option>
@@ -446,10 +473,10 @@ export const EnrollmentsPage = () => {
                             <span className="text-gray-500">Subtotal</span>
                             <span className="font-semibold text-slate-700">{formatearMonto(subtotalDescuento)}</span>
                         </div>
-                        {!sinCambios && descuentoElegido && (
-                            <div className="flex justify-between items-center">
-                                <span className="text-gray-500">{descuentoElegido.nombre} ({descuentoElegido.porcentaje} %)</span>
-                                <span className="font-semibold text-slate-700">− {formatearMonto(montoDescuento)}</span>
+                        {idDescuentoElegido !== "" && (
+                            <div className="flex justify-between items-center gap-3">
+                                <span className="text-gray-500 truncate">{etiquetaElegido}</span>
+                                <span className="font-semibold text-slate-700 shrink-0">− {formatearMonto(montoDescuento)}</span>
                             </div>
                         )}
                         <div className="flex justify-between items-center">
