@@ -58,9 +58,13 @@ export const FacturaDetalleModal = ({ factura, onClose, formatearFecha, formatea
 
                 <div className="flex flex-col gap-1 pt-3 border-t border-(--borderColor-input)">
                     {descuento > 0 && (
-                        <div className="flex justify-between items-center">
-                            <span className="text-gray-500">Descuento de la inscripción</span>
-                            <span className="font-semibold text-slate-700">− {formatearMonto(descuento)}</span>
+                        <div className="flex justify-between items-center gap-3">
+                            <span className="text-gray-500 truncate">
+                                {factura?.nombreDescuento
+                                    ? `Descuento: ${factura.nombreDescuento} (${factura.porcentajeDescuento} %)`
+                                    : 'Descuento de la inscripción'}
+                            </span>
+                            <span className="font-semibold text-slate-700 shrink-0">− {formatearMonto(descuento)}</span>
                         </div>
                     )}
                     <div className="flex justify-between items-center">
