@@ -1,182 +1,241 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getLoggedUser, getStoredToken } from '../../services/api';
-import { listarInscripciones } from '../../services/inscripcionesService';
-import { JwtTokenModal } from '../../components/JwtTokenModal';
-import { SearchInput } from '../../components/SearchInput';
+import { toast } from 'sonner';
+import { Table } from '../../components/Table';
+import { TarjetaResumen } from '../../components/TarjetaResumen';
+import { listarInscripcionesPaginado } from '../../services/inscripcionesService';
+import { listarMateriasPaginado, listarExamenesPaginado, listarMisNotas } from '../../services/notasService';
+
+// Filas de cada tabla del tablero
+const FILAS = 5;
+
+// Se cargan todos los datos de una vez para cruzarlos (ids -> nombres)
+const MAX_REGISTROS = 1000;
+
+// Valor a mostrar cuando un dato viene vacío o no se pudo cargar
+const SIN_DATO = '—';
+
+// En pantallas angostas la tabla se desplaza dentro de su recuadro, no toda la página
+const TABLA_CLASS = "overflow-x-auto rounded-md [&>table]:w-full";
+const ENLACE_CLASS = "text-xs text-(--btnColor-primary) font-bold hover:underline cursor-pointer";
+
+const ETIQUETA_DIA = {
+    LUNES: 'Lunes', MARTES: 'Martes', MIERCOLES: 'Miércoles', JUEVES: 'Jueves',
+    VIERNES: 'Viernes', SABADO: 'Sábado', DOMINGO: 'Domingo',
+};
+
+// "2026-11-20" -> "20/11/2026". Sin new Date(), que correría un día por la zona horaria.
+const formatearFecha = (fecha) => {
+    if (!fecha) return SIN_DATO;
+    const [anio, mes, dia] = String(fecha).slice(0, 10).split('-');
+    return anio && mes && dia ? `${dia}/${mes}/${anio}` : String(fecha);
+};
+
+const formatearHora = (hora) => (hora ? String(hora).slice(0, 5) : SIN_DATO); // "18:00:00" -> "18:00"
+
+const formatearMonto = (monto) =>
+    monto === undefined || monto === null ? SIN_DATO : `Gs. ${Number(monto).toLocaleString('es-PY')}`;
+
+// Fecha local de hoy como "2026-11-25" (toISOString usaría la fecha UTC)
+const fechaDeHoy = () => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 10);
+};
+
+// Cada consulta es independiente: si una falla, el resto del tablero se muestra igual
+const CONSULTAS = {
+    // El backend devuelve solo las inscripciones del alumno logueado
+    inscripciones: {
+        nombre: 'tus inscripciones',
+        pedir: () => listarInscripcionesPaginado({ page: 0, size: MAX_REGISTROS }),
+    },
+    materias: {
+        nombre: 'las materias',
+        pedir: () => listarMateriasPaginado({ page: 0, size: MAX_REGISTROS }),
+    },
+    examenes: {
+        nombre: 'los exámenes',
+        pedir: () => listarExamenesPaginado({ page: 0, size: MAX_REGISTROS }),
+    },
+    notas: {
+        nombre: 'tus notas',
+        // Solo la última que se cargó o corrigió
+        pedir: () => listarMisNotas({ page: 0, size: 1, sort: 'actualizacion,desc' }),
+    },
+};
+
+/**
+ * Ítems inscriptos de un tipo, sin repetir: Map id -> estado de pago.
+ * Si un ítem está en varias inscripciones, alcanza con que una esté pagada.
+ */
+const itemsInscriptos = (inscripciones, tipo, campoId) => {
+    const items = new Map();
+    inscripciones.forEach((i) => (i.detallesInscripcion || []).forEach((det) => {
+        if (det.tipoInscripcion !== tipo || det[campoId] == null) return;
+        if (items.get(det[campoId]) !== 'PAGADO') items.set(det[campoId], i.estadoPago);
+    }));
+    return items;
+};
 
 export const DashboardPageAlumno = () => {
     const navigate = useNavigate();
-    const [materias, setMaterias] = useState([]);
-    const [busqueda, setBusqueda] = useState('');
+
+    const [datos, setDatos] = useState({}); // resultado de cada consulta; si falló, no está
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-    const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
-
-    const user = getLoggedUser();
-    const hasToken = Boolean(getStoredToken());
-
-    const cargarDashboard = async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            const data = await listarInscripciones(0, 100);
-            const inscripciones = Array.isArray(data) ? data : data?.content || data?.data || [];
-
-            // Extraer materias de las inscripciones del alumno
-            const materiasExtraidas = [];
-            inscripciones.forEach(inscripcion => {
-                if (inscripcion.detallesInscripcion) {
-                    inscripcion.detallesInscripcion.forEach(detalle => {
-                        materiasExtraidas.push({
-                            id: detalle.idMateria || detalle.id,
-                            nombre: detalle.nombreMateria || detalle.materia || 'Materia',
-                            anio: inscripcion.anio || inscripcion.anho || new Date().getFullYear(),
-                            dias: detalle.dias || detalle.horario || 'Días a convenir',
-                            fechaInscripcion: inscripcion.fechaInscripcion || inscripcion.fecha || null,
-                            idInscripcion: inscripcion.id || inscripcion.idInscripcion,
-                        });
-                    });
-                }
-            });
-
-            setMaterias(materiasExtraidas);
-        } catch (err) {
-            console.error('Error al cargar dashboard del alumno:', err);
-            const status = err.response?.status;
-            if (status === 401 || status === 403) {
-                setError('Error de autorización (403/401): Tu sesión no tiene un token JWT válido o ha expirado.');
-            } else if (err.message === 'Network Error') {
-                setError('Error de conexión con el servidor. Verifica que los microservicios estén activos.');
-            } else {
-                setError(err.response?.data?.message || err.message || 'Error al conectar con el servidor.');
-            }
-        } finally {
-            setLoading(false);
-        }
-    };
 
     useEffect(() => {
-        cargarDashboard();
+        // Evita actualizar el estado si se sale del tablero o por la doble ejecución de StrictMode
+        let ignore = false;
+
+        const cargar = async () => {
+            const claves = Object.keys(CONSULTAS);
+            const resultados = await Promise.allSettled(claves.map((clave) => CONSULTAS[clave].pedir()));
+            if (ignore) return;
+
+            const cargados = {};
+            const fallidos = [];
+            resultados.forEach((resultado, i) => {
+                if (resultado.status === 'fulfilled') {
+                    cargados[claves[i]] = resultado.value.content;
+                } else {
+                    console.error(`Error al cargar ${CONSULTAS[claves[i]].nombre}:`, resultado.reason);
+                    fallidos.push(CONSULTAS[claves[i]].nombre);
+                }
+            });
+            setDatos(cargados);
+            setLoading(false);
+            // Un solo aviso, aunque fallen varias
+            if (fallidos.length > 0) toast.error(`No se pudieron cargar ${fallidos.join(', ')}.`);
+        };
+        cargar();
+
+        return () => { ignore = true; };
     }, []);
 
-    const materiasFiltradas = materias.filter((m) => {
-        const nombre = (m.nombre || '').toLowerCase();
-        return nombre.includes(busqueda.toLowerCase());
-    });
+    const { inscripciones, materias, examenes, notas } = datos;
+    const materiasPorId = Object.fromEntries((materias ?? []).map((m) => [m.idMateria, m]));
+    const examenesPorId = Object.fromEntries((examenes ?? []).map((e) => [e.idExamen, e]));
+    const nombreMateria = (id) => materiasPorId[id]?.nombreMateria || `Materia #${id ?? SIN_DATO}`;
+
+    // ---------------------------------- DATOS -----------------------------------
+
+    const misMaterias = [...itemsInscriptos(inscripciones ?? [], 'MATERIA', 'idMateria')];
+
+    // Exámenes en los que está inscripto, de hoy en adelante y por fecha
+    const hoy = fechaDeHoy();
+    const proximos = [...itemsInscriptos(inscripciones ?? [], 'EXAMEN', 'idExamen').keys()]
+        .map((id) => examenesPorId[id])
+        .filter((e) => e?.fecha >= hoy)
+        .sort((a, b) => `${a.fecha} ${a.hora}`.localeCompare(`${b.fecha} ${b.hora}`));
+    // Hacen falta las dos consultas para saber cuáles son
+    const hayExamenes = Boolean(inscripciones && examenes);
+
+    const pendientes = (inscripciones ?? []).filter((i) => i.estadoPago === 'PENDIENTE');
+    const totalPendiente = pendientes.reduce((acc, i) => acc + (i.total ?? 0), 0);
+
+    const ultimaNota = notas?.[0];
+    const valorUltimaNota = () => {
+        if (!notas) return SIN_DATO;
+        if (!ultimaNota) return 'Sin notas';
+        const calificacion = ultimaNota.estadoNota === 'AUSENTE' ? 'Ausente' : ultimaNota.calificacion ?? SIN_DATO;
+        return `${calificacion} · ${examenesPorId[ultimaNota.idExamen]?.titulo || `Examen #${ultimaNota.idExamen}`}`;
+    };
+
+    const tarjetas = [
+        {
+            titulo: 'Mis materias',
+            valor: inscripciones ? misMaterias.length : SIN_DATO,
+            icono: 'icon-[heroicons--book-open]',
+            enlace: 'Ver materias',
+            ruta: '/alumno/mis-materias',
+        },
+        {
+            titulo: 'Próximos exámenes',
+            valor: hayExamenes ? proximos.length : SIN_DATO,
+            icono: 'icon-[heroicons--calendar-days]',
+            enlace: 'Ver exámenes',
+            ruta: '/alumno/mis-examenes',
+        },
+        {
+            titulo: 'Última nota',
+            valor: valorUltimaNota(),
+            icono: 'icon-[heroicons--academic-cap]',
+            enlace: 'Ver notas',
+            ruta: '/alumno/mis-examenes',
+        },
+        {
+            titulo: 'Pendiente de pago',
+            valor: inscripciones ? formatearMonto(totalPendiente) : SIN_DATO,
+            icono: 'icon-[heroicons--banknotes]',
+            enlace: 'Ver facturación',
+            ruta: '/alumno/facturacion',
+        },
+    ];
+
+    // ---------------------------------- TABLAS ----------------------------------
+
+    const filasExamenes = proximos.slice(0, FILAS).map((e) => [
+        e.titulo || SIN_DATO,
+        nombreMateria(e.idMateria),
+        formatearFecha(e.fecha),
+        formatearHora(e.hora),
+    ]);
+
+    const filasMaterias = misMaterias.slice(0, FILAS).map(([id, estado]) => [
+        nombreMateria(id),
+        ETIQUETA_DIA[materiasPorId[id]?.dia] || SIN_DATO,
+        estado || SIN_DATO,
+    ]);
 
     return (
         <div className="container-page">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
-                <div>
-                    <h1>Tablero</h1>
-                    <h2>Resumen de tus formaciones activas y progreso de estudiantes.</h2>
-                </div>
-
-                <div className="flex items-center gap-3">
-                    <button
-                        onClick={() => setIsTokenModalOpen(true)}
-                        className={`flex items-center text-xs font-semibold px-3 py-2 rounded-xl border transition-colors cursor-pointer ${hasToken
-                                ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
-                                : 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100'
-                            }`}
-                        title="Configurar Token JWT"
-                    >
-                        <i className="icon-[heroicons--key] mr-1.5 text-base"></i>
-                        {hasToken ? 'Token JWT Activo' : 'Configurar Token JWT'}
-                    </button>
-                </div>
+            <div className="flex flex-col mt-[24px]">
+                <h1>Tablero</h1>
+                <h2>Resumen de tus materias, exámenes y pagos</h2>
             </div>
 
-            {/* Separador */}
-            <hr className="border-gray-200" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                {tarjetas.map((t) => <TarjetaResumen key={t.titulo} loading={loading} {...t} />)}
+            </div>
 
-            {/* Alerta de error */}
-            {error && (
-                <div className="p-5 bg-red-50 border border-red-200 rounded-xl text-red-700 flex flex-col md:flex-row items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                        <i className="icon-[heroicons--exclamation-triangle] text-2xl text-red-600 shrink-0"></i>
-                        <div>
-                            <p className="font-bold text-sm">Error de autenticación o conexión</p>
-                            <p className="text-xs text-red-600 mt-0.5">{error}</p>
-                        </div>
-                    </div>
-                    <div className="flex gap-2 shrink-0">
-                        <button
-                            onClick={() => setIsTokenModalOpen(true)}
-                            className="btn-primary !bg-amber-600 hover:!bg-amber-700 text-xs px-3 py-2"
-                        >
-                            <i className="icon-[heroicons--key] mr-1 text-sm"></i>
-                            Configurar Token
-                        </button>
-                        <button
-                            onClick={cargarDashboard}
-                            className="btn-primary !bg-red-600 hover:!bg-red-700 text-xs px-3 py-2"
-                        >
-                            <i className="icon-[heroicons--arrow-path] mr-1 text-sm"></i>
-                            Reintentar
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                <div className="flex flex-col gap-2 min-w-0">
+                    <div className="flex items-center justify-between">
+                        <h3>Próximos exámenes</h3>
+                        <button type="button" className={ENLACE_CLASS} onClick={() => navigate('/alumno/mis-examenes')}>
+                            Ver todos
                         </button>
                     </div>
-                </div>
-            )}
-
-            {/* Contenido principal */}
-            {loading ? (
-                <div className="flex flex-col items-center justify-center p-12 bg-white rounded-xl shadow-sm border border-gray-100">
-                    <div className="w-10 h-10 border-4 border-(--btnColor-primary) border-t-transparent rounded-full animate-spin"></div>
-                    <p className="text-sm text-gray-500 mt-4 font-medium">Cargando tus materias...</p>
-                </div>
-            ) : !error && (
-                <>
-                    {/* Búsqueda */}
-                    <div className="w-full md:w-80 mb-2">
-                        <SearchInput
-                            value={busqueda}
-                            onChange={(e) => setBusqueda(e.target.value)}
-                            placeholder="Buscar materia..."
-                            variant="default"
+                    <div className={TABLA_CLASS}>
+                        <Table
+                            headers={['Examen', 'Materia', 'Fecha', 'Hora']}
+                            data={filasExamenes}
+                            loading={loading}
+                            emptyMessage={hayExamenes ? 'No tenés exámenes próximos' : 'No se pudieron cargar tus exámenes'}
+                            showPagination={false}
                         />
                     </div>
+                </div>
 
-                    {materiasFiltradas.length === 0 ? (
-                        <div className="card text-center py-12 items-center justify-center">
-                            <i className="icon-[heroicons--book-open] text-5xl text-gray-300 mb-2"></i>
-                            <h3 className="text-base text-gray-600 font-semibold">No se encontraron materias</h3>
-                            <p className="text-xs text-gray-400 mt-1">
-                                {busqueda ? 'No hay materias que coincidan con la búsqueda.' : 'Actualmente no tienes materias inscritas en el sistema.'}
-                            </p>
-                        </div>
-                    ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            {materiasFiltradas.map((materia, index) => (
-                                <div
-                                    key={materia.id || index}
-                                    className="card cursor-pointer hover:border-(--btnColor-primary) hover:shadow-lg transition-all items-center text-center py-12 group"
-                                >
-                                    <div className="w-12 h-12 rounded-full bg-teal-50 group-hover:bg-(--btnColor-primary) text-(--btnColor-primary) group-hover:text-white flex items-center justify-center transition-colors mb-3">
-                                        <i className="icon-[heroicons--academic-cap] text-2xl"></i>
-                                    </div>
-                                    <h3 className="text-sm tracking-widest text-slate-700 font-bold uppercase group-hover:text-(--btnColor-primary) transition-colors">
-                                        {materia.nombre}
-                                    </h3>
-                                    <div className="text-xs text-gray-500 mt-3 space-y-1">
-                                        <p>Año: <span className="font-semibold text-slate-700">{materia.anio}</span></p>
-                                        <p>Días: <span className="font-semibold text-slate-700">{materia.dias}</span></p>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </>
-            )}
-
-            <JwtTokenModal
-                isOpen={isTokenModalOpen}
-                onClose={() => setIsTokenModalOpen(false)}
-                onTokenSaved={() => cargarDashboard()}
-            />
+                <div className="flex flex-col gap-2 min-w-0">
+                    <div className="flex items-center justify-between">
+                        <h3>Mis materias</h3>
+                        <button type="button" className={ENLACE_CLASS} onClick={() => navigate('/alumno/mis-materias')}>
+                            Ver todas
+                        </button>
+                    </div>
+                    <div className={TABLA_CLASS}>
+                        <Table
+                            headers={['Materia', 'Día', 'Estado de pago']}
+                            data={filasMaterias}
+                            loading={loading}
+                            emptyMessage={inscripciones ? 'No estás inscripto en ninguna materia' : 'No se pudieron cargar tus materias'}
+                            showPagination={false}
+                        />
+                    </div>
+                </div>
+            </div>
         </div>
     );
 };
-
