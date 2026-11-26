@@ -12,13 +12,13 @@ export const authService = {
 
     /**
      * registra un nuevo alumno
-     * @param {*} normalizarBusqueda 
+     * @param {*} nombre 
      * @param {*} email 
      * @param {*} contrasenha 
      * @param {*} telefono 
      * @returns 
      */
-    register: async (nombre, email, contrasenha, telefono = '') => {
+    register: async (nombre, email, contrasenha, telefono) => {
         const response = await api.post('/auth/register', {
             nombre,
             email,
