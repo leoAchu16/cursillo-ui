@@ -1,249 +1,256 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { toast } from 'sonner';
 import { SearchInput } from '../../components/SearchInput';
-import { buscarNotasPorExamen, obtenerExamen } from '../../services/notasService';
-import { listarAlumnos } from '../../services/usuariosService';
+import { Table } from '../../components/Table';
+import { TarjetaResumen } from '../../components/TarjetaResumen';
+import { listarAlumnosDeMateria } from '../../services/inscripcionesService';
+import { obtenerMateria, obtenerExamen, listarNotasDeExamen } from '../../services/notasService';
+
+const FILAS = 8;
+
+// Valor a mostrar cuando un campo viene vacío
+const SIN_DATO = '—';
+
+// Resultado de quien todavía no tiene nota cargada (la tabla lo muestra como badge)
+const SIN_NOTA = 'SIN NOTA';
+
+const FILTROS = [
+    { valor: '', texto: 'Todos los resultados' },
+    { valor: 'APROBADO', texto: 'Aprobados' },
+    { valor: 'REPROBADO', texto: 'Reprobados' },
+    { valor: 'AUSENTE', texto: 'Ausentes' },
+    { valor: SIN_NOTA, texto: 'Sin nota' },
+];
+
+// "2026-11-20" -> "20/11/2026". Sin new Date(), que correría un día por la zona horaria.
+const formatearFecha = (fecha) => {
+    if (!fecha) return SIN_DATO;
+    const [anio, mes, dia] = String(fecha).slice(0, 10).split('-');
+    return anio && mes && dia ? `${dia}/${mes}/${anio}` : String(fecha);
+};
+
+const formatearHora = (hora) => (hora ? String(hora).slice(0, 5) : SIN_DATO); // "18:00:00" -> "18:00"
+
+// Fecha y hora local de ahora como "2026-11-25 18:30", para comparar con fecha + hora del examen
+const ahoraLocal = () => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 16).replace('T', ' ');
+};
+const momentoDe = (examen) => `${examen.fecha ?? ''} ${formatearHora(examen.hora)}`;
+
+// 3.4 -> "3,4"; 90 -> "90"
+const numero = (n) => n.toLocaleString('es-AR', { maximumFractionDigits: 1 });
+
+const resultadoDe = (nota) => nota?.estadoNota || SIN_NOTA;
 
 export const ResultadosExamenPage = () => {
     const navigate = useNavigate();
     const { materiaId, examenId } = useParams();
-    const [busqueda, setBusqueda] = useState('');
-    const [alumnos, setAlumnos] = useState([]);
+
+    const [materia, setMateria] = useState(null);
     const [examen, setExamen] = useState(null);
+    const [alumnos, setAlumnos] = useState([]);
+    const [notas, setNotas] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [noEncontrado, setNoEncontrado] = useState(false);
 
-    const cargarResultados = async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            const [exData, notasData, alumnosData] = await Promise.all([
-                obtenerExamen(examenId).catch(() => null),
-                buscarNotasPorExamen(examenId).catch(() => []),
-                listarAlumnos().catch(() => [])
-            ]);
+    const [busqueda, setBusqueda] = useState('');
+    const [filtro, setFiltro] = useState('');
+    const [pagina, setPagina] = useState(0);
 
-            setExamen(exData);
-
-            // Crear mapa de alumnos globales
-            const alumnosMap = {};
-            const listaAlumnosGlobal = Array.isArray(alumnosData) ? alumnosData : alumnosData?.content || [];
-            listaAlumnosGlobal.forEach(alu => {
-                const id = alu.id || alu.idUsuario || alu.idAlumno;
-                if (id) {
-                    alumnosMap[id] = {
-                        nombre: `${alu.nombre || ''} ${alu.apellido || ''}`.trim(),
-                        email: alu.email || alu.correo || 'Sin correo registrado',
-                        matricula: alu.matricula || id
-                    };
-                }
-            });
-
-            const notasList = Array.isArray(notasData) ? notasData : notasData?.content || notasData?.data || [];
-
-            // Enriquecer notas y capturar correctamente los puntos
-            const notasEnriquecidas = notasList.map((item, idx) => {
-                const idAlu = item.idAlumno || item.alumno?.id;
-                const infoAlumno = alumnosMap[idAlu] || {};
-
-                // Capturamos con prioridad todas las variantes posibles del campo de puntos del backend
-                const puntosCapturados = item.puntosCorrectos ?? item.puntosObtenidos ?? item.puntos ?? 0;
-
-                return {
-                    ...item,
-                    puntosReales: puntosCapturados,
-                    nombreResuelto: infoAlumno.nombre || item.nombreAlumno || (item.alumno?.nombre ? `${item.alumno.nombre} ${item.alumno.apellido || ''}`.trim() : null) || `Alumno #${idAlu || idx + 1}`,
-                    emailResuelto: infoAlumno.email || item.emailAlumno || item.alumno?.email || 'Sin correo registrado',
-                    matResuelta: infoAlumno.matricula || item.matricula || item.alumno?.matricula || `MAT-${idAlu || idx + 1}`
-                };
-            });
-
-            setAlumnos(notasEnriquecidas);
-        } catch (err) {
-            console.error('Error al cargar resultados de notas:', err);
-            setError(err.response?.data?.message || err.message || 'Error al conectar con el servidor.');
-        } finally {
-            setLoading(false);
-        }
-    };
-
+    // Si el examen o la materia no son del profesor, el backend responde 404
     useEffect(() => {
-        if (examenId) {
-            cargarResultados();
-        }
-    }, [examenId]);
+        let ignore = false;
 
-    const getNotaEstilo = (nota, ausente) => {
-        if (ausente) return 'bg-red-100 text-red-700';
-        const num = Number(nota);
-        if (num >= 4) return 'bg-teal-100 text-teal-700 font-bold';
-        if (num === 3) return 'bg-yellow-100 text-yellow-700 font-bold';
-        return 'bg-red-100 text-red-700 font-bold';
-    };
+        const cargar = async () => {
+            const [resExamen, resAlumnos, resNotas, resMateria] = await Promise.allSettled([
+                obtenerExamen(examenId),
+                listarAlumnosDeMateria(materiaId),
+                listarNotasDeExamen(examenId),
+                obtenerMateria(materiaId),
+            ]);
+            if (ignore) return;
 
-    const alumnosFiltrados = alumnos.filter((item) => {
-        const nombre = (item.nombreResuelto || '').toLowerCase();
-        const email = (item.emailResuelto || '').toLowerCase();
-        const search = busqueda.toLowerCase();
-        return nombre.includes(search) || email.includes(search);
+            const es404 = (r) => r.status === 'rejected' && r.reason?.response?.status === 404;
+            const examenCargado = resExamen.status === 'fulfilled' ? resExamen.value : null;
+            if (es404(resExamen) || es404(resAlumnos) || es404(resNotas)
+                || (examenCargado && String(examenCargado.idMateria) !== String(materiaId))) {
+                setNoEncontrado(true);
+            } else if ([resExamen, resAlumnos, resNotas].some((r) => r.status === 'rejected')) {
+                console.error('Error al cargar los resultados:', [resExamen, resAlumnos, resNotas].find((r) => r.status === 'rejected').reason);
+                setError('No se pudieron cargar los resultados del examen');
+                toast.error('No se pudieron cargar los resultados del examen.');
+                if (examenCargado) setExamen(examenCargado);
+            } else {
+                setExamen(examenCargado);
+                setAlumnos(resAlumnos.value);
+                setNotas(resNotas.value);
+            }
+            if (resMateria.status === 'fulfilled') setMateria(resMateria.value);
+            setLoading(false);
+        };
+        cargar();
+
+        return () => { ignore = true; };
+    }, [materiaId, examenId]);
+
+    // ---------------------------------- FILAS -----------------------------------
+
+    const total = examen?.totalPuntos || 0;
+    const notaDe = Object.fromEntries(notas.map((n) => [n.idAlumno, n]));
+    const inscriptos = new Set(alumnos.map((a) => a.idAlumno));
+
+    // Inscriptos (con o sin nota), más quienes tienen nota pero ya no figuran inscriptos
+    const filas = [
+        ...alumnos.map((a) => ({ ...a, inscripto: true })),
+        ...notas.filter((n) => !inscriptos.has(n.idAlumno))
+            .map((n) => ({ idAlumno: n.idAlumno, nombre: `Alumno #${n.idAlumno}`, inscripto: false })),
+    ]
+        .map((a) => ({ ...a, nota: notaDe[a.idAlumno], resultado: resultadoDe(notaDe[a.idAlumno]) }))
+        .sort((a, b) => (a.nombre ?? '').localeCompare(b.nombre ?? '', 'es'));
+
+    const cuantos = (resultado) => filas.filter((f) => f.resultado === resultado).length;
+    const aprobados = cuantos('APROBADO');
+    const reprobados = cuantos('REPROBADO');
+    const rindieron = filas.filter((f) => f.nota?.calificacion != null);
+    const promedio = rindieron.length > 0
+        ? rindieron.reduce((suma, f) => suma + f.nota.calificacion, 0) / rindieron.length
+        : null;
+
+    const texto = busqueda.trim().toLowerCase();
+    const filtradas = filas.filter((f) =>
+        (!filtro || f.resultado === filtro)
+        && `${f.nombre ?? ''} ${f.email ?? ''}`.toLowerCase().includes(texto));
+    const totalPaginas = Math.max(1, Math.ceil(filtradas.length / FILAS));
+    const paginaActual = Math.min(pagina, totalPaginas - 1);
+    const visibles = filtradas.slice(paginaActual * FILAS, (paginaActual + 1) * FILAS);
+
+    const datosTabla = visibles.map((f) => {
+        const puntos = f.nota?.puntosCorrectos;
+        return [
+            <span className="flex flex-col items-start text-left">
+                <span className="font-semibold text-slate-800">{f.nombre || `Alumno #${f.idAlumno}`}</span>
+                {!f.inscripto && <span className="text-xs text-gray-500">Ya no está inscripto</span>}
+            </span>,
+            f.email || SIN_DATO,
+            puntos != null ? `${puntos} / ${total}` : SIN_DATO,
+            puntos != null && total > 0 ? `${numero((puntos / total) * 100)} %` : SIN_DATO,
+            f.nota?.calificacion != null ? <b className="text-slate-800">{f.nota.calificacion}</b> : SIN_DATO,
+            f.resultado,
+        ];
     });
 
-    const nombreExamen = examen?.nombre || examen?.nombreExamen || `Examen #${examenId}`;
+    // -------------------------------- PANTALLA ---------------------------------
+
+    const nombreMateria = materia?.nombreMateria || `Materia #${materiaId}`;
+    const rutaCalificar = `/materias/examenes/${materiaId}/calificar?idExamen=${examenId}`;
+
+    const volver = (
+        <button
+            type="button"
+            onClick={() => navigate(`/materias/${materiaId}`)}
+            className="flex items-center text-sm font-bold text-(--btnColor-primary) hover:underline w-fit mt-[24px] cursor-pointer"
+        >
+            <i className="icon-[heroicons--arrow-left] mr-1"></i> Volver a {nombreMateria}
+        </button>
+    );
+
+    const futuro = examen && momentoDe(examen) > ahoraLocal();
+
+    if (noEncontrado || (!loading && futuro)) {
+        return (
+            <div className="container-page">
+                {volver}
+                <div className="card items-center text-center py-10 gap-2">
+                    <i className="icon-[heroicons--chart-bar] text-4xl text-gray-300"></i>
+                    <h3>{noEncontrado ? 'Examen no encontrado' : 'El examen todavía no se tomó'}</h3>
+                    <p className="text-sm text-gray-500">
+                        {noEncontrado
+                            ? 'No existe, no es de esta materia o no es una de las materias que dictás.'
+                            : `Los resultados van a estar después del ${formatearFecha(examen.fecha)} a las ${formatearHora(examen.hora)}.`}
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
+    const sinDatos = loading || Boolean(error);
+    const tarjetas = [
+        {
+            titulo: 'Promedio', icono: 'icon-[heroicons--chart-bar]',
+            valor: sinDatos || promedio === null ? SIN_DATO : numero(promedio),
+            nota: rindieron.length === 1 ? 'De 1 alumno que rindió' : `De ${rindieron.length} alumnos que rindieron`,
+        },
+        {
+            titulo: 'Aprobados', icono: 'icon-[heroicons--check-circle]',
+            valor: sinDatos ? SIN_DATO : aprobados,
+            nota: rindieron.length > 0 ? `${numero((aprobados / rindieron.length) * 100)} % de los que rindieron` : 'Nadie rindió todavía',
+        },
+        { titulo: 'Reprobados', icono: 'icon-[heroicons--x-circle]', valor: sinDatos ? SIN_DATO : reprobados, nota: 'Calificación 1' },
+        { titulo: 'Ausentes', icono: 'icon-[heroicons--user-minus]', valor: sinDatos ? SIN_DATO : cuantos('AUSENTE'), nota: 'No se presentaron' },
+        { titulo: 'Sin nota', icono: 'icon-[heroicons--clock]', valor: sinDatos ? SIN_DATO : cuantos(SIN_NOTA), nota: 'Falta calificar' },
+    ];
 
     return (
         <div className="container-page">
-            <button
-                onClick={() => navigate(`/materias/examenes/${materiaId}`)}
-                className="flex items-center text-sm font-bold text-(--btnColor-primary) hover:underline mb-2 cursor-pointer w-fit"
-            >
-                <i className="icon-[heroicons--arrow-left] mr-1"></i> Volver a Exámenes
-            </button>
-
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-                <div>
-                    <h1 className="uppercase tracking-wide text-2xl font-bold">
-                        EXÁMENES / <span className="text-gray-500 capitalize">{nombreExamen}</span>
-                    </h1>
-                    <h2 className="text-xs text-gray-400 mt-1">Calificaciones consolidadas y rendimiento por alumno.</h2>
+            {volver}
+            <div className="flex flex-row flex-wrap justify-between items-end gap-4">
+                <div className="flex flex-col min-w-0">
+                    <h1 className="truncate">{examen ? `Resultados: ${examen.titulo}` : 'Resultados del examen'}</h1>
+                    <h2>
+                        {examen
+                            ? `${nombreMateria} · ${formatearFecha(examen.fecha)} ${formatearHora(examen.hora)} · ${total} puntos`
+                            : nombreMateria}
+                    </h2>
                 </div>
-
                 <button
-                    onClick={() => navigate(`/materias/examenes/${materiaId}/calificar?idExamen=${examenId}`)}
-                    className="btn-primary text-sm px-4 py-2"
+                    type="button"
+                    onClick={() => navigate(rutaCalificar)}
+                    disabled={loading || !examen}
+                    className="btn-primary cursor-pointer flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                    <i className="icon-[heroicons--pencil-square] text-lg mr-2"></i>
-                    Editar Calificaciones
+                    <i className="icon-[heroicons--academic-cap] text-white"></i>
+                    Editar calificaciones
                 </button>
             </div>
 
-            {loading && (
-                <div className="flex flex-col items-center justify-center p-12 bg-white rounded-xl shadow-sm border border-gray-100">
-                    <div className="w-10 h-10 border-4 border-(--btnColor-primary) border-t-transparent rounded-full animate-spin"></div>
-                    <p className="text-sm text-gray-500 mt-4 font-medium">Cargando resultados del examen...</p>
-                </div>
-            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+                {tarjetas.map((t) => <TarjetaResumen key={t.titulo} loading={loading} {...t} />)}
+            </div>
 
-            {!loading && error && (
-                <div className="p-5 bg-red-50 border border-red-200 rounded-xl text-red-700 flex flex-col md:flex-row items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                        <i className="icon-[heroicons--exclamation-triangle] text-2xl text-red-600 shrink-0"></i>
-                        <div>
-                            <p className="font-bold text-sm">No se pudieron cargar los resultados</p>
-                            <p className="text-xs text-red-600">{error}</p>
-                        </div>
-                    </div>
-                    <button
-                        onClick={cargarResultados}
-                        className="btn-primary !bg-red-600 hover:!bg-red-700 text-xs px-4 py-2 shrink-0"
-                    >
-                        <i className="icon-[heroicons--arrow-path] mr-1.5 text-sm"></i>
-                        Reintentar
-                    </button>
-                </div>
-            )}
+            <div className="flex flex-row flex-wrap items-center gap-4">
+                <SearchInput
+                    placeholder="Buscar alumno"
+                    value={busqueda}
+                    onChange={(e) => { setBusqueda(e.target.value); setPagina(0); }}
+                />
+                <select
+                    value={filtro}
+                    onChange={(e) => { setFiltro(e.target.value); setPagina(0); }}
+                    aria-label="Filtrar por resultado"
+                    className="px-3 py-2.5 rounded-xl border border-(--borderColor-input) bg-white text-sm text-gray-700 focus:outline-none focus:border-(--btnColor-primary) shadow-sm"
+                >
+                    {FILTROS.map((f) => <option key={f.valor} value={f.valor}>{f.texto}</option>)}
+                </select>
+            </div>
 
-            {!loading && !error && (
-                <div className="card !p-0 overflow-hidden">
-                    <div className="p-5 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-4">
-                        <SearchInput
-                            value={busqueda}
-                            onChange={(e) => setBusqueda(e.target.value)}
-                            placeholder="Buscar por nombre o email..."
-                            variant="default"
-                        />
-                        <div className="text-xs font-semibold text-gray-500">
-                            Total Evaluados: <span className="text-slate-800 font-bold">{alumnos.length}</span>
-                        </div>
-                    </div>
-
-                    {alumnosFiltrados.length === 0 ? (
-                        <div className="text-center py-12">
-                            <i className="icon-[heroicons--document-text] text-4xl text-gray-300 mb-2"></i>
-                            <p className="text-sm text-gray-500 font-medium">No hay calificaciones registradas para este examen.</p>
-                            <button
-                                onClick={() => navigate(`/materias/examenes/${materiaId}/calificar?idExamen=${examenId}`)}
-                                className="btn-primary mx-auto mt-4 text-xs px-4 py-2"
-                            >
-                                <i className="icon-[heroicons--plus] mr-1.5"></i>
-                                Cargar Primeras Calificaciones
-                            </button>
-                        </div>
-                    ) : (
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-sm border-separate border-spacing-0">
-                                <thead>
-                                    <tr className="bg-[#F8FAFC] text-gray-500 text-[11px] font-bold uppercase tracking-wider">
-                                        <th className="py-4 px-6 text-left">ALUMNO</th>
-                                        <th className="py-4 px-6 text-left">EMAIL</th>
-                                        <th className="py-4 px-6 text-center">PUNTOS</th>
-                                        <th className="py-4 px-6 text-center">NOTA (1-5)</th>
-                                        <th className="py-4 px-6 text-center">ESTADO</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {alumnosFiltrados.map((item, idx) => {
-                                        const id = item.id || idx + 1;
-                                        const nombre = item.nombreResuelto;
-                                        const email = item.emailResuelto;
-                                        const puntos = item.puntosReales;
-                                        const totalPts = item.totalPuntos || examen?.puntajeTotal || 20;
-                                        const nota = item.calificacion ?? (item.ausente ? '-' : Math.max(1, Math.round((puntos / totalPts) * 5)));
-                                        const ausente = Boolean(item.ausente);
-
-                                        return (
-                                            <tr key={id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                                                <td className="py-4 px-6 text-left">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-9 h-9 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-xs uppercase shadow-sm shrink-0">
-                                                            {nombre
-                                                                .split(' ')
-                                                                .map((n) => n[0])
-                                                                .slice(0, 2)
-                                                                .join('')}
-                                                        </div>
-                                                        <div>
-                                                            <p className="font-bold text-slate-800 text-sm">{nombre}</p>
-                                                            <p className="text-xs text-gray-400">ID: {item.matResuelta}</p>
-                                                        </div>
-                                                    </div>
-                                                </td>
-
-                                                <td className="py-4 px-6 text-left text-slate-600">
-                                                    {email}
-                                                </td>
-
-                                                <td className="py-4 px-6 text-center text-slate-700 font-medium">
-                                                    {ausente ? '-' : `${puntos} / ${totalPts}`}
-                                                </td>
-
-                                                <td className="py-4 px-6 text-center">
-                                                    <div className="flex justify-center">
-                                                        <span className={`w-8 h-8 flex items-center justify-center rounded-full text-xs font-bold ${getNotaEstilo(nota, ausente)}`}>
-                                                            {ausente ? 'A' : nota}
-                                                        </span>
-                                                    </div>
-                                                </td>
-
-                                                <td className="py-4 px-6 text-center">
-                                                    <span className={`badge !text-xs py-1 ${ausente ? 'badge-danger' : 'badge-success'}`}>
-                                                        {ausente ? 'Ausente' : 'Rendido'}
-                                                    </span>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-
-                    <div className="flex flex-col sm:flex-row justify-between items-center p-5 border-t border-gray-100 bg-white">
-                        <p className="text-xs text-gray-500 mb-4 sm:mb-0">
-                            Mostrando {alumnosFiltrados.length} de {alumnos.length} alumnos evaluados
-                        </p>
-                    </div>
-                </div>
-            )}
+            {/* En pantallas angostas la tabla se desplaza dentro de su recuadro, no toda la página */}
+            <div className="overflow-x-auto rounded-md [&>table]:w-full">
+                <Table
+                    headers={['Alumno', 'Email', 'Puntos', 'Porcentaje', 'Calificación', 'Resultado']}
+                    data={datosTabla}
+                    loading={loading}
+                    emptyMessage={error || (filas.length === 0 ? 'No hay alumnos inscriptos en la materia' : 'No se encontraron alumnos')}
+                    currentPage={paginaActual + 1}
+                    totalPages={totalPaginas}
+                    totalElements={filtradas.length}
+                    onPrevPage={() => setPagina(Math.max(0, paginaActual - 1))}
+                    onNextPage={() => setPagina(Math.min(totalPaginas - 1, paginaActual + 1))}
+                />
+            </div>
         </div>
     );
 };
