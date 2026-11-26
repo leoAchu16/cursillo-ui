@@ -1,164 +1,221 @@
 import imgLogo from '../assets/CursilloPy-LOGO.png'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { Navigate, useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import { SegmentedControl } from '../components/SegmentedControl'
-import { useNavigate } from 'react-router-dom'
+import { Spinner } from '../components/Spinner'
 import { authService } from '../services/authService'
-import { Spinner } from "../components/Spinner"
+import { getStoredToken, mensajeDeError } from '../services/api'
+
+const SECCIONES = [
+    { label: 'Iniciar Sesión', value: 'iniciarSesion' },
+    { label: 'Registrarse', value: 'registrarse' }
+]
+
+const FORM_VACIO = { nombre: '', email: '', telefono: '', contrasenha: '', confirmarContrasenha: '' }
+
+// Mismas reglas que en Alumnos y en el backend
+const EMAIL_REGEX = /^[^@\s]+@[^@\s]+$/
+const TELEFONO_REGEX = /^\+?\d+$/
+const LARGO_MINIMO_CONTRASENHA = 8
+const BYTES_MAXIMOS_CONTRASENHA = 72
+
+const INPUT_CLASS = "w-full px-3 py-2 rounded-lg border border-(--borderColor-input) bg-white text-sm focus:outline-none focus:border-(--btnColor-primary)"
+const LABEL_CLASS = "block text-xs font-bold text-gray-600 tracking-wider uppercase mb-1"
+
+const SIN_CONEXION = 'No se pudo conectar con el servidor. Intentá de nuevo en unos minutos.'
+
+// Sin respuesta o con un 5xx, el problema es del servidor y no de los datos ingresados
+const esErrorDelServidor = (err) => !err.response || err.response.status >= 500
+
+// Campo de contraseña con un botón para mostrarla
+const CampoContrasenha = ({ id, label, ...props }) => {
+    const [visible, setVisible] = useState(false)
+    return (
+        <div>
+            <label htmlFor={id} className={LABEL_CLASS}>{label}</label>
+            <div className="relative">
+                <input
+                    id={id}
+                    name={id}
+                    type={visible ? 'text' : 'password'}
+                    placeholder="••••••••"
+                    className={`${INPUT_CLASS} pr-10`}
+                    {...props}
+                />
+                <button
+                    type="button"
+                    onClick={() => setVisible(v => !v)}
+                    aria-label={visible ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                    title={visible ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                    className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500 hover:text-(--btnColor-primary) cursor-pointer"
+                >
+                    <i className={`${visible ? 'icon-[heroicons--eye-slash]' : 'icon-[heroicons--eye]'} text-lg`}></i>
+                </button>
+            </div>
+        </div>
+    )
+}
 
 export const LoginPage = () => {
-
-    const [email, setEmail] = useState('');
-    const [contrasenha, setContrasenha] = useState('');
-    const [error, setError] = useState('');
-    const [seccion, setSeccion] = useState('iniciarSesion')
     const navigate = useNavigate()
-    const [cargando, setCargando] = useState(false);
 
-    //para registro
-    const [nombre, setNombre] = useState('');
-    const [confirmarContra, setConfirmarContra] = useState('');
+    const [seccion, setSeccion] = useState('iniciarSesion')
+    const [form, setForm] = useState(FORM_VACIO)
+    const [cargando, setCargando] = useState(false)
 
-    const options = [
-        { label: 'Iniciar Sesión', value: 'iniciarSesion' },
-        { label: 'Registrarse', value: 'registrarse' }
-    ]
+    const registrando = seccion === 'registrarse'
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        setError(null);
-        setCargando(true);
+    // Si quedó guardado un token que ya no sirve, se borra y se explica por qué hay que volver a ingresar
+    useEffect(() => {
+        if (!getStoredToken() || authService.getRutaInicio() !== '/login') return
+        const mensaje = authService.isAuthenticated()
+            ? 'Tu usuario no tiene un rol válido. Consultá con la secretaría.'
+            : 'Tu sesión expiró. Volvé a ingresar.'
+        authService.logout()
+        toast.warning(mensaje)
+    }, [])
 
-        if (seccion === 'iniciarSesion') {
-            try {
-                const usuario = await authService.login(email, contrasenha);
-                console.log('Sesion iniciada: ', usuario);
-                if (usuario.rol === 'SECRETARIA') navigate('/');
-                else if (usuario.rol === 'PROFESOR') navigate('/profesor/dashboard');
-                else if (usuario.rol === 'ALUMNO') navigate('/alumno/tablero');
-            } catch (err) {
-                setError('Credenciales incorrectas.')
-                setCargando(false);
+    const cambiarSeccion = (nueva) => {
+        if (cargando || nueva === seccion) return
+        setSeccion(nueva)
+        // El email sirve en las dos secciones; las contraseñas y el resto no se arrastran
+        setForm({ ...FORM_VACIO, email: form.email })
+    }
+
+    const handleInputChange = (e) => {
+        const { name } = e.target
+        let { value } = e.target
+        // En el teléfono solo se aceptan dígitos y un "+" al inicio
+        if (name === 'telefono') {
+            value = value.replace(/[^\d+]/g, '').replace(/(?!^)\+/g, '')
+        }
+        setForm({ ...form, [name]: value })
+    }
+
+    // Devuelve el primer problema del formulario, o null si está todo bien
+    const validar = () => {
+        if (registrando && !form.nombre.trim()) return 'El nombre es obligatorio.'
+        if (!EMAIL_REGEX.test(form.email.trim())) return 'Ingresá un email válido.'
+        if (!registrando) return form.contrasenha ? null : 'Ingresá tu contraseña.'
+
+        if (!TELEFONO_REGEX.test(form.telefono)) return 'El teléfono solo puede contener números (y un + al inicio).'
+        if (!form.contrasenha.trim() || form.contrasenha.length < LARGO_MINIMO_CONTRASENHA)
+            return `La contraseña debe tener al menos ${LARGO_MINIMO_CONTRASENHA} caracteres.`
+        if (new TextEncoder().encode(form.contrasenha).length > BYTES_MAXIMOS_CONTRASENHA)
+            return 'La contraseña es demasiado larga.'
+        if (form.contrasenha !== form.confirmarContrasenha) return 'Las contraseñas no coinciden.'
+        return null
+    }
+
+    const iniciarSesion = async () => {
+        try {
+            await authService.login(form.email.trim(), form.contrasenha)
+            const ruta = authService.getRutaInicio()
+            if (ruta === '/login') {
+                // El token no trae un rol que el sistema conozca
+                authService.logout()
+                toast.error('Tu usuario no tiene un rol válido. Consultá con la secretaría.')
+                return
             }
-        } else {
-            if (contrasenha.length < 8) {
-                setError('La contraseña debe tener al menos 8 caracteres.');
-                setCargando(false);
-                return;
-            }
-            if (contrasenha !== confirmarContra) {
-                setError('Las contraseñas no coinciden');
-                setCargando(false);
-                return;
-            }
-
-            try {
-                await authService.register(nombre, email, contrasenha);
-                setSeccion('iniciarSesion');
-                setError(null);
-                setCargando(false);
-            } catch (err) {
-                const mensaje = err.response?.data?.message || 'Error al registrar usuario.'
-                setError(mensaje);
-                setCargando(false);
-            }
+            navigate(ruta, { replace: true })
+        } catch (err) {
+            console.error('Error al iniciar sesión:', err)
+            if (esErrorDelServidor(err)) toast.error(SIN_CONEXION)
+            else if (err.response.status === 401) toast.error('Email o contraseña incorrectos.')
+            else toast.error(mensajeDeError(err, 'No se pudo iniciar sesión.'))
         }
     }
 
+    const registrar = async () => {
+        try {
+            const email = form.email.trim()
+            await authService.register(form.nombre.trim(), email, form.contrasenha, form.telefono)
+            toast.success('Cuenta creada correctamente. Ya podés iniciar sesión.')
+            setSeccion('iniciarSesion')
+            setForm({ ...FORM_VACIO, email })
+        } catch (err) {
+            console.error('Error al registrar usuario:', err)
+            toast.error(esErrorDelServidor(err) ? SIN_CONEXION : mensajeDeError(err, 'No se pudo crear la cuenta.'))
+        }
+    }
+
+    const handleSubmit = async (e) => {
+        e.preventDefault()
+        if (cargando) return
+
+        const problema = validar()
+        if (problema) {
+            toast.warning(problema)
+            return
+        }
+
+        setCargando(true)
+        await (registrando ? registrar() : iniciarSesion())
+        setCargando(false)
+    }
+
+    // Con la sesión abierta no hace falta volver a ingresar
+    const rutaInicio = authService.getRutaInicio()
+    if (rutaInicio !== '/login') return <Navigate to={rutaInicio} replace />
+
+    const campoEmail = (
+        <div>
+            <label htmlFor="email" className={LABEL_CLASS}>Email</label>
+            <input id="email" name="email" type="email" maxLength={255} autoComplete="username"
+                value={form.email} onChange={handleInputChange} disabled={cargando}
+                placeholder="correo@gmail.com" className={INPUT_CLASS} />
+        </div>
+    )
 
     return (
-        <div className="w-full min-h-screen flex items-center justify-center bg-(--bgColor-main) p-4 py-8">
-            <div className="card items-center h-auto p-8 max-w-md">
-                <div className='flex flex-col items-center gap-5'>
-                    <img className="max-h-24 w-auto object-contain mx-auto" src={imgLogo} alt="CursilloPy Logo"></img>
-                    <SegmentedControl
-                        value={seccion}
-                        onChange={setSeccion}
-                        options={options}
-                    />
-                </div>
-                <form onSubmit={handleSubmit} className="flex flex-col gap-3" autoComplete="off">
-                    {seccion == 'registrarse' ? (
+        <div className="w-full min-h-screen flex items-center justify-center bg-(--bgColor-main) p-4">
+            <div className={`card items-center p-6 sm:p-8 ${registrando ? 'max-w-xl' : 'max-w-sm'}`}>
+                <img className="max-h-24 w-auto object-contain" src={imgLogo} alt="CursilloPy Logo" />
+                <SegmentedControl value={seccion} onChange={cambiarSeccion} options={SECCIONES} />
+
+                <form onSubmit={handleSubmit} className="w-full flex flex-col gap-4" noValidate>
+                    {registrando ? (
                         <>
-                            <label>Nombre</label>
-                            <input
-                                type="text"
-                                value={nombre}
-                                onChange={(e) => setNombre(e.target.value)}
-                                placeholder="Fulano De Tal"
-                                autoComplete="off"
-                                required
-                            />
-                            <label>Correo</label>
-                            <input
-                                type="email"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                                placeholder="correo@gmail.com"
-                                autoComplete="off"
-                                required
-                            />
-                            <label>Contraseña</label>
-                            <input
-                                type="password"
-                                value={contrasenha}
-                                onChange={(e) => setContrasenha(e.target.value)}
-                                placeholder="••••••••"
-                                autoComplete="new-password"
-                                required
-                            />
-                            <label>Confirmar Contraseña</label>
-                            <input
-                                type="password"
-                                value={confirmarContra}
-                                onChange={(e) => setConfirmarContra(e.target.value)}
-                                placeholder="••••••••"
-                                autoComplete="new-password"
-                                required
-                            />
+                            <div>
+                                <label htmlFor="nombre" className={LABEL_CLASS}>Nombre y apellido</label>
+                                <input id="nombre" name="nombre" type="text" maxLength={100} autoComplete="name"
+                                    value={form.nombre} onChange={handleInputChange} disabled={cargando}
+                                    placeholder="Fulano De Tal" className={INPUT_CLASS} />
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                {campoEmail}
+                                <div>
+                                    <label htmlFor="telefono" className={LABEL_CLASS}>Teléfono</label>
+                                    <input id="telefono" name="telefono" type="tel" inputMode="tel" maxLength={20} autoComplete="tel"
+                                        value={form.telefono} onChange={handleInputChange} disabled={cargando}
+                                        placeholder="Ej. 0983123456" className={INPUT_CLASS} />
+                                </div>
+                                <CampoContrasenha key="nueva" id="contrasenha" label="Contraseña" autoComplete="new-password"
+                                    value={form.contrasenha} onChange={handleInputChange} disabled={cargando} />
+                                <CampoContrasenha id="confirmarContrasenha" label="Confirmar contraseña" autoComplete="new-password"
+                                    value={form.confirmarContrasenha} onChange={handleInputChange} disabled={cargando} />
+                            </div>
                         </>
                     ) : (
                         <>
-                            <label>Email</label>
-                            <input
-                                type="email"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                                placeholder="correo@gmail.com"
-                                autoComplete="off"
-                                required
-                            />
-                            <label>Contraseña</label>
-                            <input
-                                type="password"
-                                value={contrasenha}
-                                onChange={(e) => setContrasenha(e.target.value)}
-                                placeholder="••••••••"
-                                autoComplete="off"
-                                required
-                            />
+                            {campoEmail}
+                            <CampoContrasenha key="actual" id="contrasenha" label="Contraseña" autoComplete="current-password"
+                                value={form.contrasenha} onChange={handleInputChange} disabled={cargando} />
                         </>
                     )}
 
-                    {error && (
-                        <div className="text-red-500 text-sm text-center mt-2 font-medium">
-                            {error}
-                        </div>
-                    )}
-
                     <button
-                        type='submit'
+                        type="submit"
                         disabled={cargando}
-                        className={`btn-primary w-64 mt-4 mx-auto flex items-center justify-center gap-2 ${cargando ? 'opacity-70 cursor-not-allowed' : ''}`}>
-
+                        className="btn-primary w-full mt-2 gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                    >
                         {cargando && <Spinner />}
-
-                        {cargando
-                            ? (seccion === 'registrarse' ? 'Registrando...' : 'Ingresando...')
-                            : (seccion === 'registrarse' ? 'Registrarse' : 'Ingresar')
-                        }
+                        {registrando
+                            ? (cargando ? 'Registrando...' : 'Registrarse')
+                            : (cargando ? 'Ingresando...' : 'Ingresar')}
                     </button>
                 </form>
-
             </div>
         </div>
     )
