@@ -299,9 +299,11 @@ export const FacturacionPage = () => {
                             </ul>
                             <div className="p-3 flex flex-col gap-1 border-t border-(--borderColor-input)">
                                 {descuentoDe(i) > 0 && (
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-gray-500">Descuento</span>
-                                        <span className="font-semibold text-slate-700">− {formatearMonto(descuentoDe(i))}</span>
+                                    <div className="flex justify-between items-center gap-3">
+                                        <span className="text-gray-500 truncate">
+                                            {i.nombreDescuento ? `Descuento: ${i.nombreDescuento} (${i.porcentajeDescuento} %)` : 'Descuento'}
+                                        </span>
+                                        <span className="font-semibold text-slate-700 shrink-0">− {formatearMonto(descuentoDe(i))}</span>
                                     </div>
                                 )}
                                 <div className="flex justify-between items-center">
