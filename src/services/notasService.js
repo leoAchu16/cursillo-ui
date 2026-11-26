@@ -116,6 +116,22 @@ export const crearExamen = async (datosExamen) => {
  * ==========================================
  */
 
+/**
+ * Lista las notas del alumno logueado (GET /notas/mias, solo ALUMNO).
+ * Devuelve { content, totalPages, totalElements }.
+ */
+export const listarMisNotas = async ({ page = 0, size = 20, sort = '' } = {}) => {
+  const params = { page, size };
+  if (sort) params.sort = sort;
+  const { data } = await api.get('/notas/mias', { params });
+  const content = Array.isArray(data?.content) ? data.content : [];
+  return {
+    content,
+    totalPages: data?.page?.totalPages ?? data?.totalPages ?? 1,
+    totalElements: data?.page?.totalElements ?? data?.totalElements ?? content.length,
+  };
+};
+
 export const buscarNotasPorExamen = async (idExamen) => {
   const response = await api.get(`/notas/buscar`, {
     params: { idExamen },
