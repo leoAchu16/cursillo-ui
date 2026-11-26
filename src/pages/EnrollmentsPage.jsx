@@ -6,7 +6,7 @@ import { Table } from "../components/Table";
 import { Modal } from "../components/Modal";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { Spinner } from "../components/Spinner";
-import { listarInscripcionesPaginado, eliminarInscripcion } from "../services/inscripcionesService";
+import { listarInscripcionesPaginado, eliminarInscripcion, listarDescuentos, aplicarDescuento } from "../services/inscripcionesService";
 import { listarAlumnosPaginado } from "../services/usuariosService";
 import { obtenerMateria, obtenerExamen } from "../services/notasService";
 import { mensajeDeError } from "../services/api";
@@ -26,7 +26,7 @@ const LABEL_CLASS = "block text-xs font-bold text-gray-600 tracking-wider upperc
 
 // Mismos colores que los badges de Table
 const BADGE_ESTADO = { PAGADO: 'badge badge-success', PENDIENTE: 'badge badge-warning' };
-const BADGE_TIPO = { MATERIA: 'badge badge-info', EXAMEN: 'badge badge-success' };
+const BADGE_TIPO = { MATERIA: 'badge badge-info', EXAMEN: 'badge badge-purple' };
 
 /**
  * "2026-11-17" -> "17/11/2026".
@@ -73,6 +73,12 @@ export const EnrollmentsPage = () => {
     const [nombresItems, setNombresItems] = useState({});
     const [cargandoNombres, setCargandoNombres] = useState(false);
     const detalleRequestId = useRef(0); // descarta respuestas de un detalle que ya se cerró o cambió
+
+    // Modal de descuento
+    const [inscripcionDescuento, setInscripcionDescuento] = useState(null);
+    const [descuentos, setDescuentos] = useState(null); // se piden al abrir el modal por primera vez
+    const [idDescuentoElegido, setIdDescuentoElegido] = useState("");
+    const [aplicando, setAplicando] = useState(false);
 
     // Modal de eliminación
     const [inscripcionEliminar, setInscripcionEliminar] = useState(null);
@@ -214,6 +220,51 @@ export const EnrollmentsPage = () => {
         }
     };
 
+    // -------------------------------- DESCUENTO ---------------------------------
+
+    const abrirDescuento = async (inscripcion) => {
+        setInscripcionDescuento(inscripcion);
+        setIdDescuentoElegido(inscripcion.idDescuento != null ? String(inscripcion.idDescuento) : "");
+        if (descuentos) return;
+        try {
+            setDescuentos(await listarDescuentos({ size: 1000 }));
+        } catch (err) {
+            console.error("Error al cargar descuentos:", err);
+            toast.error("No se pudieron cargar los descuentos.");
+            setInscripcionDescuento(null);
+        }
+    };
+
+    const cerrarDescuento = () => {
+        if (aplicando) return;
+        setInscripcionDescuento(null);
+    };
+
+    // Los costos se guardan sin descuento: el descuento se aplica sobre su suma (igual que el backend)
+    const subtotalDescuento = (inscripcionDescuento?.detallesInscripcion || []).reduce((acc, d) => acc + (d.costo ?? 0), 0);
+    const descuentoElegido = (descuentos || []).find((d) => String(d.idDescuento) === idDescuentoElegido);
+    // El que ya tenía puede haberse eliminado: sigue apareciendo, pero no se conoce su porcentaje
+    const actualEliminado = inscripcionDescuento?.idDescuento != null
+        && descuentos && !descuentos.some((d) => d.idDescuento === inscripcionDescuento.idDescuento);
+    const sinCambios = idDescuentoElegido === (inscripcionDescuento?.idDescuento != null ? String(inscripcionDescuento.idDescuento) : "");
+    const montoDescuento = descuentoElegido ? Math.floor((subtotalDescuento * descuentoElegido.porcentaje) / 100) : 0;
+    const totalNuevo = sinCambios ? inscripcionDescuento?.total : Math.max(0, subtotalDescuento - montoDescuento);
+
+    const guardarDescuento = async () => {
+        setAplicando(true);
+        try {
+            await aplicarDescuento(inscripcionDescuento.idInscripcion, idDescuentoElegido ? Number(idDescuentoElegido) : null);
+            toast.success(idDescuentoElegido ? "Descuento aplicado." : "Descuento quitado.");
+            setInscripcionDescuento(null);
+            setRecarga(r => r + 1);
+        } catch (err) {
+            console.error("Error al aplicar el descuento:", err);
+            toast.error(mensajeDeError(err, "No se pudo aplicar el descuento."));
+        } finally {
+            setAplicando(false);
+        }
+    };
+
     // ---------------------------------- TABLA -----------------------------------
 
     // Filas para la tabla: mismo orden que inscripciones, así el índice identifica a la inscripción
@@ -235,6 +286,12 @@ export const EnrollmentsPage = () => {
                 const { idAlumno, idInscripcion } = inscripciones[index];
                 navigate(`/facturas/nueva?alumno=${idAlumno}&inscripcion=${idInscripcion}`);
             }
+        },
+        {
+            type: 'discount',
+            title: 'Aplicar descuento',
+            show: (_, index) => inscripciones[index].estadoPago === 'PENDIENTE',
+            onClick: (_, index) => abrirDescuento(inscripciones[index])
         },
         { type: 'delete', title: 'Eliminar', onClick: (_, index) => pedirEliminar(inscripciones[index]) }
     ];
@@ -346,6 +403,78 @@ export const EnrollmentsPage = () => {
                 <div className="px-6 py-4 bg-white border-t border-(--borderColor-input) flex justify-end">
                     <button type="button" className="btn-primary cursor-pointer" onClick={cerrarDetalle}>
                         Cerrar
+                    </button>
+                </div>
+            </Modal>
+
+            {/* ----------------------------- DESCUENTO ---------------------------- */}
+            <Modal
+                isOpen={Boolean(inscripcionDescuento)}
+                onClose={cerrarDescuento}
+                title="Aplicar descuento"
+                size="md"
+            >
+                <div className="p-6 bg-(--bgColor-main) flex flex-col gap-4 text-sm">
+                    <p className="text-slate-700">
+                        Inscripción <b>#{inscripcionDescuento?.idInscripcion}</b> de <b>{inscripcionDescuento && nombreAlumno(inscripcionDescuento.idAlumno)}</b>
+                    </p>
+                    <div>
+                        <label htmlFor="descuentoAplicar" className={LABEL_CLASS}>Descuento</label>
+                        <select
+                            id="descuentoAplicar"
+                            value={idDescuentoElegido}
+                            onChange={(e) => setIdDescuentoElegido(e.target.value)}
+                            disabled={!descuentos || aplicando}
+                            className="w-full px-3 py-2 rounded-lg border border-(--borderColor-input) bg-white text-sm focus:outline-none focus:border-(--btnColor-primary)"
+                        >
+                            <option value="">Sin descuento</option>
+                            {actualEliminado && (
+                                <option value={inscripcionDescuento.idDescuento}>Descuento actual (ya eliminado)</option>
+                            )}
+                            {(descuentos || []).map((d) => (
+                                <option key={d.idDescuento} value={d.idDescuento}>{d.nombre} ({d.porcentaje} %)</option>
+                            ))}
+                        </select>
+                        {!descuentos && (
+                            <p className="mt-1.5 text-xs text-gray-500 flex items-center gap-2">
+                                <Spinner className="h-3.5 w-3.5 text-(--btnColor-primary)" /> Cargando descuentos...
+                            </p>
+                        )}
+                    </div>
+                    <div className="flex flex-col gap-1 pt-3 border-t border-(--borderColor-input)">
+                        <div className="flex justify-between items-center">
+                            <span className="text-gray-500">Subtotal</span>
+                            <span className="font-semibold text-slate-700">{formatearMonto(subtotalDescuento)}</span>
+                        </div>
+                        {!sinCambios && descuentoElegido && (
+                            <div className="flex justify-between items-center">
+                                <span className="text-gray-500">{descuentoElegido.nombre} ({descuentoElegido.porcentaje} %)</span>
+                                <span className="font-semibold text-slate-700">− {formatearMonto(montoDescuento)}</span>
+                            </div>
+                        )}
+                        <div className="flex justify-between items-center">
+                            <span className="font-bold text-slate-800">{sinCambios ? "Total actual" : "Nuevo total"}</span>
+                            <span className="text-lg font-extrabold text-(--btnColor-primary)">{formatearMonto(totalNuevo)}</span>
+                        </div>
+                    </div>
+                </div>
+                <div className="px-6 py-4 bg-white border-t border-(--borderColor-input) flex justify-end items-center gap-4">
+                    <button
+                        type="button"
+                        onClick={cerrarDescuento}
+                        disabled={aplicando}
+                        className="text-sm font-medium text-gray-600 hover:text-gray-800 transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                        Cancelar
+                    </button>
+                    <button
+                        type="button"
+                        onClick={guardarDescuento}
+                        disabled={!descuentos || sinCambios || aplicando}
+                        className="btn-primary cursor-pointer flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {aplicando && <Spinner className="h-4 w-4 text-white" />}
+                        Guardar
                     </button>
                 </div>
             </Modal>
