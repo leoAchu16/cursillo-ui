@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Table } from '../components/Table';
-import { Spinner } from '../components/Spinner';
+import { TarjetaResumen } from '../components/TarjetaResumen';
 import { FacturaDetalleModal } from '../components/FacturaDetalleModal';
 import { codigoFactura } from '../components/codigoFactura';
 import { listarAlumnosPaginado } from '../services/usuariosService';
@@ -174,34 +174,7 @@ export const DashboardPageSecretary = () => {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                {tarjetas.map((t) => (
-                    <div key={t.titulo} className="card gap-1 min-w-0">
-                        <div className="flex justify-between items-center gap-2 text-(--btnColor-primary)">
-                            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider truncate" title={t.titulo}>
-                                {t.titulo}
-                            </span>
-                            <i className={`${t.icono} text-2xl shrink-0`}></i>
-                        </div>
-                        {/* Alto fijo, para que la tarjeta no cambie de tamaño al terminar de cargar */}
-                        <div className="h-9 flex items-center min-w-0">
-                            {loading ? (
-                                <Spinner className="h-5 w-5 text-(--btnColor-primary)" />
-                            ) : (
-                                <span className="text-xl font-extrabold text-slate-800 truncate" title={String(t.valor)}>
-                                    {t.valor}
-                                </span>
-                            )}
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => navigate(t.ruta)}
-                            className={`${ENLACE_CLASS} flex items-center gap-1 w-fit`}
-                        >
-                            {t.enlace}
-                            <i className="icon-[heroicons--arrow-right]"></i>
-                        </button>
-                    </div>
-                ))}
+                {tarjetas.map((t) => <TarjetaResumen key={t.titulo} loading={loading} {...t} />)}
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
