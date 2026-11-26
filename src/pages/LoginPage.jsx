@@ -2,6 +2,8 @@ import imgLogo from '../assets/CursilloPy-LOGO.png'
 import { useEffect, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
+import { CampoContrasenha } from '../components/CampoContrasenha'
+import { errorDeContrasenha } from '../components/perfilUtils'
 import { SegmentedControl } from '../components/SegmentedControl'
 import { Spinner } from '../components/Spinner'
 import { authService } from '../services/authService'
@@ -17,8 +19,6 @@ const FORM_VACIO = { nombre: '', email: '', telefono: '', contrasenha: '', confi
 // Mismas reglas que en Alumnos y en el backend
 const EMAIL_REGEX = /^[^@\s]+@[^@\s]+$/
 const TELEFONO_REGEX = /^\+?\d+$/
-const LARGO_MINIMO_CONTRASENHA = 8
-const BYTES_MAXIMOS_CONTRASENHA = 72
 
 const INPUT_CLASS = "w-full px-3 py-2 rounded-lg border border-(--borderColor-input) bg-white text-sm focus:outline-none focus:border-(--btnColor-primary)"
 const LABEL_CLASS = "block text-xs font-bold text-gray-600 tracking-wider uppercase mb-1"
@@ -27,35 +27,6 @@ const SIN_CONEXION = 'No se pudo conectar con el servidor. Intentá de nuevo en 
 
 // Sin respuesta o con un 5xx, el problema es del servidor y no de los datos ingresados
 const esErrorDelServidor = (err) => !err.response || err.response.status >= 500
-
-// Campo de contraseña con un botón para mostrarla
-const CampoContrasenha = ({ id, label, ...props }) => {
-    const [visible, setVisible] = useState(false)
-    return (
-        <div>
-            <label htmlFor={id} className={LABEL_CLASS}>{label}</label>
-            <div className="relative">
-                <input
-                    id={id}
-                    name={id}
-                    type={visible ? 'text' : 'password'}
-                    placeholder="••••••••"
-                    className={`${INPUT_CLASS} pr-10`}
-                    {...props}
-                />
-                <button
-                    type="button"
-                    onClick={() => setVisible(v => !v)}
-                    aria-label={visible ? 'Ocultar contraseña' : 'Mostrar contraseña'}
-                    title={visible ? 'Ocultar contraseña' : 'Mostrar contraseña'}
-                    className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500 hover:text-(--btnColor-primary) cursor-pointer"
-                >
-                    <i className={`${visible ? 'icon-[heroicons--eye-slash]' : 'icon-[heroicons--eye]'} text-lg`}></i>
-                </button>
-            </div>
-        </div>
-    )
-}
 
 export const LoginPage = () => {
     const navigate = useNavigate()
@@ -100,10 +71,8 @@ export const LoginPage = () => {
         if (!registrando) return form.contrasenha ? null : 'Ingresá tu contraseña.'
 
         if (!TELEFONO_REGEX.test(form.telefono)) return 'El teléfono solo puede contener números (y un + al inicio).'
-        if (!form.contrasenha.trim() || form.contrasenha.length < LARGO_MINIMO_CONTRASENHA)
-            return `La contraseña debe tener al menos ${LARGO_MINIMO_CONTRASENHA} caracteres.`
-        if (new TextEncoder().encode(form.contrasenha).length > BYTES_MAXIMOS_CONTRASENHA)
-            return 'La contraseña es demasiado larga.'
+        const errorContrasenha = errorDeContrasenha(form.contrasenha)
+        if (errorContrasenha) return errorContrasenha
         if (form.contrasenha !== form.confirmarContrasenha) return 'Las contraseñas no coinciden.'
         return null
     }
