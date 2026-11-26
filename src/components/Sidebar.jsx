@@ -1,6 +1,7 @@
 import imgLogo from '../assets/soloLogo.png';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { authService } from '../services/authService';
+import { NodoBadge } from './NodoBadge';
 
 export const Sidebar = ({ role }) => {
     const navigate = useNavigate();
@@ -12,6 +13,7 @@ export const Sidebar = ({ role }) => {
             { label: "Materias", value: "materias", icon: "icon-[heroicons--book-open]", path: "/materias" },
             { label: "Alumnos", value: "alumnos", icon: "icon-[heroicons--users]", path: "/alumnos" },
             { label: "Inscripciones", value: "inscripciones", icon: "icon-[heroicons--clipboard-document-list]", path: "/inscripciones" },
+            { label: "Descuentos", value: "descuentos", icon: "icon-[heroicons--receipt-percent]", path: "/descuentos" },
             { label: "Facturas", value: "facturas", icon: "icon-[heroicons--document-text]", path: "/facturas" },
             { label: "Conceptos", value: "conceptos", icon: "icon-[heroicons--tag]", path: "/conceptos" },
         ],
@@ -26,6 +28,7 @@ export const Sidebar = ({ role }) => {
             { label: "Tablero", value: "tablero", icon: "icon-[heroicons--squares-2x2]", path: "/alumno/tablero" },
             { label: "Mis Materias", value: "mis-materias", icon: "icon-[heroicons--book-open]", path: "/alumno/mis-materias" },
             { label: "Mis Exámenes", value: "mis-examenes", icon: "icon-[heroicons--clipboard-document-check]", path: "/alumno/mis-examenes" },
+            { label: "Inscribirme", value: "inscribirme", icon: "icon-[heroicons--plus-circle]", path: "/alumno/inscribirme" },
             { label: "Facturación", value: "facturacion", icon: "icon-[heroicons--document-text]", path: "/alumno/facturacion" }
         ]
     }
@@ -59,7 +62,7 @@ export const Sidebar = ({ role }) => {
                         return (
                             <li
                                 key={option.value}
-                                className={`flex items-center p-3 cursor-pointer transition-all duration-200 
+                                className={`flex items-center p-3 cursor-pointer transition-all duration-200
                                     ${active ? 'border-l-4 border-sm border-(--btnColor-primary) text-(--btnColor-primary) bg-(--btnColor-sidebar-hover)'
                                         : 'hover:bg-(--btnColor-sidebar-hover) hover:text-(--textColor)'}`}
                                 onClick={() => navigate(option.path)}
@@ -74,16 +77,7 @@ export const Sidebar = ({ role }) => {
             </nav>
 
             <div className="w-full mt-auto flex flex-col border-t-2 border-gray-300">
-                {role === "PROFESOR" && (
-                    <button
-                        type="button"
-                        className="w-full flex items-center p-3 cursor-pointer text-sm hover:bg-(--btnColor-sidebar-hover) hover:text-(--textColor)"
-                        onClick={() => navigate("/ajustes")}
-                    >
-                        <i className="icon-[heroicons--cog-6-tooth] text-2xl text-slate-700 mr-3"></i>
-                        Ajustes
-                    </button>
-                )}
+                <NodoBadge />
                 <button
                     type="button"
                     className="w-full flex items-center p-3 cursor-pointer text-sm hover:bg-(--btnColor-sidebar-hover) hover:text-(--textColor)"
