@@ -7,22 +7,28 @@ import api from './api';
  */
 
 /**
- * Obtiene las materias asignadas a un profesor.
- * Si falla la ruta específica /materias/profesor/{idProfesor}, intenta /materias.
+ * Obtiene las materias asignadas a un profesor (todas, en una página). Devuelve la página tal cual.
+ * Si falla, el error llega a quien llama: antes se pedía /materias como alternativa
+ * y el profesor terminaba viendo como propias las materias de todos.
  */
 export const listarMateriasProfesor = async (idProfesor) => {
-  try {
-    if (idProfesor) {
-      const response = await api.get(`/materias/profesor/${idProfesor}`);
-      return response.data;
-    }
-  } catch (error) {
-    console.warn(`No se pudo obtener materias para profesor ${idProfesor}, intentando /materias general...`, error?.message);
-  }
+  if (!idProfesor) throw new Error('No se pudo identificar al profesor');
+  const response = await api.get(`/materias/profesor/${idProfesor}`, { params: { page: 0, size: 1000 } });
+  return response.data;
+};
 
-  // Fallback general a todas las materias
-  const generalResponse = await api.get('/materias');
-  return generalResponse.data;
+/**
+ * Materias de un profesor paginadas, por nombre. Devuelve { content, totalPages, totalElements }.
+ */
+export const listarMateriasDeProfesor = async ({ idProfesor, page = 0, size = 20 } = {}) => {
+  if (!idProfesor) throw new Error('No se pudo identificar al profesor');
+  const { data } = await api.get(`/materias/profesor/${idProfesor}`, { params: { page, size, sort: 'nombreMateria,idMateria,asc' } });
+  const content = Array.isArray(data?.content) ? data.content : [];
+  return {
+    content,
+    totalPages: data?.page?.totalPages ?? data?.totalPages ?? 1,
+    totalElements: data?.page?.totalElements ?? data?.totalElements ?? content.length,
+  };
 };
 
 export const listarMaterias = async () => {
@@ -105,9 +111,39 @@ export const obtenerExamen = async (idExamen) => {
   return response.data;
 };
 
+/**
+ * Exámenes activos de una materia paginados. Devuelve { content, totalPages, totalElements }.
+ */
+export const listarExamenesDeMateria = async ({ idMateria, page = 0, size = 20 } = {}) => {
+  const { data } = await api.get(`/examenes/materia/${idMateria}`, { params: { page, size } });
+  const content = Array.isArray(data?.content) ? data.content : [];
+  return {
+    content,
+    totalPages: data?.page?.totalPages ?? data?.totalPages ?? 1,
+    totalElements: data?.page?.totalElements ?? data?.totalElements ?? content.length,
+  };
+};
+
+/**
+ * Crea un examen: { idMateria, titulo, fecha, hora: "18:00:00", totalPuntos }.
+ * El profesor y el estado los define el backend; un profesor solo crea en sus materias.
+ */
 export const crearExamen = async (datosExamen) => {
   const response = await api.post('/examenes', datosExamen);
   return response.data;
+};
+
+/**
+ * Edita título, fecha, hora y puntos. Con notas cargadas el backend no deja cambiar los puntos.
+ */
+export const actualizarExamen = async (idExamen, datosExamen) => {
+  const response = await api.put(`/examenes/${idExamen}`, datosExamen);
+  return response.data;
+};
+
+// Borrado lógico. Un profesor solo elimina exámenes de sus materias y sin notas
+export const eliminarExamen = async (idExamen) => {
+  await api.delete(`/examenes/${idExamen}`);
 };
 
 /**
@@ -132,56 +168,36 @@ export const listarMisNotas = async ({ page = 0, size = 20, sort = '' } = {}) =>
   };
 };
 
-export const buscarNotasPorExamen = async (idExamen) => {
-  const response = await api.get(`/notas/buscar`, {
-    params: { idExamen },
-  });
-  return response.data;
+/**
+ * Notas activas paginadas (GET /notas). Un profesor o secretaria ve todas; un alumno, las suyas.
+ * Devuelve { content, totalPages, totalElements }.
+ */
+export const listarNotasPaginado = async ({ page = 0, size = 20 } = {}) => {
+  const { data } = await api.get('/notas', { params: { page, size } });
+  const content = Array.isArray(data?.content) ? data.content : [];
+  return {
+    content,
+    totalPages: data?.page?.totalPages ?? data?.totalPages ?? 1,
+    totalElements: data?.page?.totalElements ?? data?.totalElements ?? content.length,
+  };
 };
 
 /**
- * Guarda o actualiza un lote de calificaciones vía batch
- * PUT /api/notas/batch
+ * Todas las notas activas de un examen (GET /notas/buscar). Devuelve el array de NotaDTO.
  */
-export const guardarNotas = async (listaDeNotas) => {
-  const response = await api.put('/notas/batch', listaDeNotas);
-  return response.data;
+export const listarNotasDeExamen = async (idExamen) => {
+  const { data } = await api.get('/notas/buscar', { params: { idExamen, page: 0, size: 1000 } });
+  return Array.isArray(data?.content) ? data.content : [];
 };
 
 /**
- * Actualiza una calificación individual
- * PUT /api/notas/{id}
+ * Guarda las notas de un examen, todo o nada (PUT /examenes/{id}/notas).
+ * cargas: [{ idAlumno, puntosCorrectos, ausente }]; un ausente va sin puntos.
+ * El backend crea las que faltan, actualiza las existentes y calcula calificación y estado.
  */
-export const actualizarNota = async (id, datos) => {
-  const response = await api.put(`/notas/${id}`, datos);
-  return response.data;
+export const cargarNotasDeExamen = async (idExamen, cargas) => {
+  const { data } = await api.put(`/examenes/${idExamen}/notas`, cargas);
+  return data;
 };
-
-/** ==========================================
- *  SERVICIOS DE INSCRIPCIONES (Workaround Frontend)
- *  ========================================== */
-
-export const listarInscripcionesPorMateria = async (idMateria) => {
-  try {
-    const response = await api.get(`/inscripciones`);
-    const todasLasInscripciones = response.data.content || response.data || [];
-
-    // Filtramos buscando si AL MENOS UN detalle tiene el idMateria que buscamos
-    const filtradas = todasLasInscripciones.filter(inscripcion => {
-      // Verificamos que tenga detalles y buscamos dentro del array
-      if (!inscripcion.detallesInscripcion) return false;
-      return inscripcion.detallesInscripcion.some(
-        detalle => detalle.idMateria === Number(idMateria)
-      );
-    });
-
-    return filtradas;
-  } catch (error) {
-    console.warn(`Error al filtrar inscripciones por materia:`, error?.message);
-    return [];
-  }
-};
-
-
 
 // listarAlumnos y listarProfesores viven en usuariosService (consultan /usuarios)
