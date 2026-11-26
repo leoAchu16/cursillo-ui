@@ -1,11 +1,29 @@
 import imgLogo from '../assets/soloLogo.png';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { authService } from '../services/authService';
+import { useEffect, useState } from 'react';
 import { NodoBadge } from './NodoBadge';
+import { PerfilModal } from './PerfilModal';
+import { iniciales } from './perfilUtils';
+import { obtenerPerfil } from '../services/usuariosService';
+import { getLoggedUser } from '../services/api';
 
 export const Sidebar = ({ role }) => {
     const navigate = useNavigate();
     const location = useLocation();
+
+    const [perfilAbierto, setPerfilAbierto] = useState(false);
+    // El token solo trae el email: el nombre se pide una vez al montar
+    const [nombre, setNombre] = useState(null);
+    const nombreVisible = nombre || getLoggedUser()?.email || "Mi perfil";
+
+    useEffect(() => {
+        let activo = true;
+        obtenerPerfil()
+            .then((perfil) => { if (activo) setNombre(perfil.nombre); })
+            .catch(() => { /* sin nombre se muestra el email */ });
+        return () => { activo = false; };
+    }, []);
 
     const opcionesPorRol = {
         SECRETARIA: [
@@ -20,8 +38,8 @@ export const Sidebar = ({ role }) => {
 
         PROFESOR: [
             { label: "Dashboard", value: "dashboard", icon: "icon-[heroicons--squares-2x2]", path: "/profesor/dashboard" },
-            { label: "Materias", value: "materias", icon: "icon-[heroicons--book-open]", path: "/materias/mis-materias" },
-            { label: "Exámenes", value: "examenes", icon: "icon-[heroicons--clipboard-document-check]", path: "/materias/examenes" }
+            // activo: también queda marcado en la pantalla de cada materia y en calificar / resultados
+            { label: "Materias y Exámenes", value: "materias", icon: "icon-[heroicons--book-open]", path: "/materias/mis-materias", activo: "/materias" }
         ],
 
         ALUMNO: [
@@ -47,7 +65,7 @@ export const Sidebar = ({ role }) => {
 
     return (
         <aside className="h-screen w-72 flex flex-col bg-(--bgColor-main) border-r-2 border-gray-300">
-            <div className="flex border-b-2 border-gray-300 my-8 pb-8 px-4 items-center gap-3">
+            <div className="flex border-b-2 border-gray-300 my-5 pb-5 px-4 items-center gap-2">
                 <img src={imgLogo} className="max-h-20 object-contain" alt="Logo" />
                 <div className="flex flex-col my-auto ml-2">
                     <h1 className="text-(--btnColor-primary) text-[25px]">CursilloPy</h1>
@@ -58,7 +76,7 @@ export const Sidebar = ({ role }) => {
             <nav className="ml-0.5">
                 <ul>
                     {opciones.map((option) => {
-                        const active = isSelected(option.path);
+                        const active = isSelected(option.activo || option.path);
                         return (
                             <li
                                 key={option.value}
@@ -80,6 +98,20 @@ export const Sidebar = ({ role }) => {
                 <NodoBadge />
                 <button
                     type="button"
+                    className="w-full flex items-center gap-3 p-3 cursor-pointer text-left hover:bg-(--btnColor-sidebar-hover) hover:text-(--textColor)"
+                    onClick={() => setPerfilAbierto(true)}
+                    title="Ver mi perfil"
+                >
+                    <span className="h-9 w-9 shrink-0 rounded-full bg-(--btnColor-primary) text-white flex items-center justify-center text-sm font-bold">
+                        {iniciales(nombreVisible)}
+                    </span>
+                    <span className="min-w-0 flex flex-col">
+                        <span className="text-sm font-medium text-slate-800 truncate">{nombreVisible}</span>
+                        <span className="text-xs text-gray-500">Ver perfil</span>
+                    </span>
+                </button>
+                <button
+                    type="button"
                     className="w-full flex items-center p-3 cursor-pointer text-sm hover:bg-(--btnColor-sidebar-hover) hover:text-(--textColor)"
                     onClick={handleLogout}
                 >
@@ -87,6 +119,13 @@ export const Sidebar = ({ role }) => {
                     Cerrar sesión
                 </button>
             </div>
+
+            {perfilAbierto && (
+                <PerfilModal
+                    onClose={() => setPerfilAbierto(false)}
+                    onPerfilActualizado={(perfil) => setNombre(perfil.nombre)}
+                />
+            )}
         </aside>
     );
 };
