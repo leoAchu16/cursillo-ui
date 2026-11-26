@@ -55,7 +55,7 @@ api.interceptors.response.use(
 
       if (expired && window.location.pathname !== '/login') {
         console.warn('Sesión expirada (401 Unauthorized). Redirigiendo a login...');
-        localStorage.removeItem('token');
+        // El token vencido lo borra LoginPage, después de avisar que la sesión expiró
         window.location.href = '/login';
       }
     }
@@ -93,10 +93,14 @@ export const getLoggedUser = () => {
     if (token) {
       const payloadData = jwtDecode(token);
 
+      // Un token vencido no es una sesión: el backend lo rechaza
+      if (payloadData.exp && Date.now() >= payloadData.exp * 1000) return null;
+
       return {
         id: payloadData.id,
         email: payloadData.sub,
-        rol: payloadData.roles ? payloadData.roles[0] : null
+        rol: payloadData.roles ? payloadData.roles[0] : null, // el principal viene primero
+        roles: payloadData.roles ?? []
       };
     }
   } catch (e) {
