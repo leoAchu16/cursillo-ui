@@ -1,525 +1,405 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { toast } from 'sonner';
 import { SearchInput } from '../../components/SearchInput';
-import { Combobox } from '../../components/Combobox';
-import api from '../../services/api';
+import { Table } from '../../components/Table';
+import { ConfirmModal } from '../../components/ConfirmModal';
+import { Spinner } from '../../components/Spinner';
+import { TarjetaResumen } from '../../components/TarjetaResumen';
+import { mensajeDeError } from '../../services/api';
+import { listarAlumnosDeMateria } from '../../services/inscripcionesService';
 import {
-    buscarNotasPorExamen,
-    listarExamenesPorMateria,
     obtenerMateria,
-    listarInscripcionesPorMateria
+    listarExamenesDeMateria,
+    listarNotasDeExamen,
+    cargarNotasDeExamen,
 } from '../../services/notasService';
-import { listarAlumnos } from '../../services/usuariosService';
+
+// Se cargan todos los exámenes de la materia de una vez
+const MAX_REGISTROS = 1000;
+
+// Valor a mostrar cuando un campo viene vacío
+const SIN_DATO = '—';
+
+const INPUT_PUNTOS = "w-20 text-center px-2 py-1.5 rounded-lg border bg-white font-bold text-slate-800 focus:outline-none focus:border-(--btnColor-primary) disabled:bg-gray-100 disabled:text-gray-400";
+
+// "2026-11-20" -> "20/11/2026". Sin new Date(), que correría un día por la zona horaria.
+const formatearFecha = (fecha) => {
+    if (!fecha) return SIN_DATO;
+    const [anio, mes, dia] = String(fecha).slice(0, 10).split('-');
+    return anio && mes && dia ? `${dia}/${mes}/${anio}` : String(fecha);
+};
+
+const formatearHora = (hora) => (hora ? String(hora).slice(0, 5) : SIN_DATO); // "18:00:00" -> "18:00"
+
+// Fecha y hora local de ahora como "2026-11-25 18:30", para comparar con fecha + hora del examen
+const ahoraLocal = () => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 16).replace('T', ' ');
+};
+const momentoDe = (examen) => `${examen.fecha ?? ''} ${formatearHora(examen.hora)}`;
+
+/**
+ * Misma regla que el backend (NotaService): porcentaje exacto, sin redondear.
+ * 90 % o más: 5 · 80: 4 · 70: 3 · 60: 2 · menos: 1 (reprobado).
+ */
+const calificar = (puntos, total) => {
+    const porcentaje = (puntos / total) * 100;
+    const calificacion = porcentaje >= 90 ? 5 : porcentaje >= 80 ? 4 : porcentaje >= 70 ? 3 : porcentaje >= 60 ? 2 : 1;
+    return { calificacion, estado: calificacion === 1 ? 'REPROBADO' : 'APROBADO' };
+};
+
+// Puntos escritos: '' (sin nota), un entero válido, o un error
+const leerPuntos = (texto, total) => {
+    if (texto === '' || texto === null || texto === undefined) return { vacio: true };
+    const n = Number(texto);
+    if (!Number.isInteger(n) || n < 0 || n > total) return { error: `Entre 0 y ${total}, sin decimales` };
+    return { valor: n };
+};
 
 export const CalificarExamenPage = () => {
-    const navigate = useNavigate();
     const { materiaId } = useParams();
     const [searchParams, setSearchParams] = useSearchParams();
-    const examenIdFromUrl = searchParams.get('idExamen');
+    const navigate = useNavigate();
+    const idExamenUrl = searchParams.get('idExamen');
 
-    const [busqueda, setBusqueda] = useState('');
-    const [totalPuntos, setTotalPuntos] = useState(20);
     const [materia, setMateria] = useState(null);
     const [examenes, setExamenes] = useState([]);
-    const [examenSeleccionadoId, setExamenSeleccionadoId] = useState(examenIdFromUrl || '');
     const [alumnos, setAlumnos] = useState([]);
-
     const [loading, setLoading] = useState(true);
-    const [guardando, setGuardando] = useState(false);
     const [error, setError] = useState(null);
-    const [mensajeExito, setMensajeExito] = useState(null);
+    const [noEncontrada, setNoEncontrada] = useState(false);
 
-    // Cargar Materia y lista de exámenes al montar
+    // Notas del examen elegido: guardadas (como vienen del backend) y lo que se está editando
+    const [guardadas, setGuardadas] = useState({});   // idAlumno -> NotaDTO
+    const [edicion, setEdicion] = useState({});       // idAlumno -> { puntos: '45', ausente: false }
+    const [cargandoNotas, setCargandoNotas] = useState(false);
+    const [errorNotas, setErrorNotas] = useState(null);
+    const [recarga, setRecarga] = useState(0);
+
+    const [busqueda, setBusqueda] = useState('');
+    const [guardando, setGuardando] = useState(false);
+    const [salida, setSalida] = useState(null); // acción pendiente si hay cambios sin guardar
+
+    // Materia, exámenes y alumnos: al entrar. Si la materia no es del profesor, el backend responde 404
     useEffect(() => {
-        const cargarMateriaYExamenes = async () => {
-            try {
-                if (materiaId) {
-                    try {
-                        const mData = await obtenerMateria(materiaId);
-                        setMateria(mData);
-                    } catch (e) {
-                        console.warn('No se pudo obtener materia:', e);
-                    }
+        let ignore = false;
 
-                    const exData = await listarExamenesPorMateria(materiaId);
-                    const listaEx = Array.isArray(exData) ? exData : exData?.content || exData?.data || [];
-                    setExamenes(listaEx);
+        const cargar = async () => {
+            const [resAlumnos, resExamenes, resMateria] = await Promise.allSettled([
+                listarAlumnosDeMateria(materiaId),
+                listarExamenesDeMateria({ idMateria: materiaId, size: MAX_REGISTROS }),
+                obtenerMateria(materiaId),
+            ]);
+            if (ignore) return;
 
-                    if (listaEx.length > 0) {
-                        const idInicial = examenIdFromUrl || String(listaEx[0].id || listaEx[0].idExamen);
-                        setExamenSeleccionadoId(String(idInicial));
-                    }
-                }
-            } catch (err) {
-                console.error('Error cargando materias o exámenes:', err);
-                setError('Error al cargar la información del examen.');
+            if (resAlumnos.status === 'rejected' && resAlumnos.reason?.response?.status === 404) {
+                setNoEncontrada(true);
+            } else if (resAlumnos.status === 'rejected' || resExamenes.status === 'rejected') {
+                console.error('Error al cargar la materia:', resAlumnos.reason || resExamenes.reason);
+                setError('No se pudieron cargar los alumnos o los exámenes');
+                toast.error('No se pudieron cargar los alumnos o los exámenes de la materia.');
+            } else {
+                setAlumnos([...resAlumnos.value].sort((a, b) => (a.nombre ?? '').localeCompare(b.nombre ?? '', 'es')));
+                setExamenes(resExamenes.value.content);
             }
+            if (resMateria.status === 'fulfilled') setMateria(resMateria.value);
+            setLoading(false);
         };
+        cargar();
 
-        cargarMateriaYExamenes();
+        return () => { ignore = true; };
     }, [materiaId]);
 
-    const handleSeleccionarExamen = (nuevoIdExamen) => {
-        setExamenSeleccionadoId(nuevoIdExamen);
-        setSearchParams({ idExamen: nuevoIdExamen });
-    };
+    // Solo se califican los exámenes que ya se tomaron; el más reciente primero
+    const ahora = ahoraLocal();
+    const tomados = examenes
+        .filter((e) => momentoDe(e) <= ahora)
+        .sort((a, b) => momentoDe(b).localeCompare(momentoDe(a)));
+    const examenUrl = examenes.find((e) => String(e.idExamen) === idExamenUrl);
+    const examen = examenUrl && momentoDe(examenUrl) <= ahora ? examenUrl : (!idExamenUrl ? tomados[0] : null);
+    const idExamen = examen?.idExamen;
+    const total = examen?.totalPuntos || 0;
 
-    // Cargar notas y cruzar con la lista global de alumnos cuando cambia el examen seleccionado
+    // Notas del examen elegido: al elegirlo y después de guardar
     useEffect(() => {
-        if (!examenSeleccionadoId) {
-            setLoading(false);
-            return;
-        }
+        if (!idExamen) return;
+        let ignore = false;
 
-        const cargarNotasYAlumnos = async () => {
-            setLoading(true);
-            setError(null);
-            setMensajeExito(null);
+        const cargar = async () => {
+            setCargandoNotas(true);
+            setErrorNotas(null);
             try {
-                const examenActual = examenes.find(
-                    (ex) => String(ex.id || ex.idExamen) === String(examenSeleccionadoId)
-                );
-                if (examenActual?.puntajeTotal || examenActual?.totalPuntos) {
-                    setTotalPuntos(Number(examenActual.puntajeTotal || examenActual.totalPuntos));
-                }
-
-                // Peticiones en paralelo: Notas, Inscritos y Alumnos globales
-                const [notasData, inscritosData, alumnosData] = await Promise.all([
-                    buscarNotasPorExamen(examenSeleccionadoId).catch(() => []),
-                    listarInscripcionesPorMateria(materiaId).catch(() => []),
-                    listarAlumnos().catch(() => [])
-                ]);
-
-                // Crear mapa de alumnos globales
-                const alumnosMap = {};
-                const listaAlumnosGlobal = Array.isArray(alumnosData) ? alumnosData : alumnosData?.content || [];
-                listaAlumnosGlobal.forEach(alu => {
-                    const id = alu.id || alu.idUsuario || alu.idAlumno;
-                    if (id) {
-                        alumnosMap[id] = {
-                            nombre: `${alu.nombre || ''} ${alu.apellido || ''}`.trim(),
-                            matricula: alu.matricula || id
-                        };
-                    }
-                });
-
-                const notasList = Array.isArray(notasData) ? notasData : notasData?.content || notasData?.data || [];
-
-                if (notasList.length > 0) {
-                    const mapped = notasList.map((nota, idx) => {
-                        const idAlu = nota.idAlumno || nota.alumno?.id;
-                        const infoAlu = alumnosMap[idAlu] || {};
-                        const nombre = infoAlu.nombre || nota.nombreAlumno || (nota.alumno ? `${nota.alumno.nombre} ${nota.alumno.apellido || ''}`.trim() : null) || `Alumno #${idAlu || idx + 1}`;
-                        const matId = infoAlu.matricula || nota.matricula || nota.alumno?.matricula || (idAlu ? `ALU-${idAlu}` : `MAT-${idx + 1}`);
-                        const puntos = nota.puntosCorrectos ?? nota.puntos ?? 0;
-                        const ausente = nota.estadoNota === 'AUSENTE' || Boolean(nota.ausente);
-
-                        return {
-                            id: idAlu || nota.id || idx + 1,
-                            notaId: nota.idNota || nota.id || null,
-                            idAlumno: idAlu || idx + 1,
-                            nombre,
-                            matId,
-                            puntos,
-                            ausente,
-                        };
-                    });
-                    setAlumnos(mapped);
-                } else {
-                    const inscritosList = Array.isArray(inscritosData) ? inscritosData : inscritosData?.content || inscritosData?.data || [];
-
-                    if (inscritosList.length > 0) {
-                        const initialized = inscritosList.map((ins, idx) => {
-                            const idAlu = ins.idAlumno || ins.alumno?.id;
-                            const infoAlu = alumnosMap[idAlu] || {};
-                            const nombre = infoAlu.nombre || (ins.alumno?.nombre ? `${ins.alumno.nombre} ${ins.alumno.apellido || ''}`.trim() : null) || ins.nombreAlumno || `Alumno #${idAlu || idx + 1}`;
-                            const matId = infoAlu.matricula || ins.alumno?.matricula || ins.alumno?.id || idAlu || `MAT-${idx + 1}`;
-                            return {
-                                id: idAlu || idx + 1,
-                                notaId: null,
-                                idAlumno: idAlu || idx + 1,
-                                nombre,
-                                matId,
-                                puntos: 0,
-                                ausente: false,
-                            };
-                        });
-                        setAlumnos(initialized);
-                    } else {
-                        setAlumnos([]);
-                    }
-                }
+                const notas = await listarNotasDeExamen(idExamen);
+                if (ignore) return;
+                const porAlumno = Object.fromEntries(notas.map((n) => [n.idAlumno, n]));
+                setGuardadas(porAlumno);
+                setEdicion(Object.fromEntries(notas.map((n) => [n.idAlumno, {
+                    puntos: n.estadoNota === 'AUSENTE' || n.puntosCorrectos == null ? '' : String(n.puntosCorrectos),
+                    ausente: n.estadoNota === 'AUSENTE',
+                }])));
             } catch (err) {
-                console.error('Error al cargar notas del examen:', err);
-                setError(err.response?.data?.message || err.message || 'Error al obtener calificaciones.');
+                if (ignore) return;
+                console.error('Error al cargar las notas:', err);
+                setErrorNotas('No se pudieron cargar las notas del examen');
+                toast.error('No se pudieron cargar las notas del examen.');
             } finally {
-                setLoading(false);
+                if (!ignore) setCargandoNotas(false);
             }
         };
+        cargar();
 
-        cargarNotasYAlumnos();
-    }, [examenSeleccionadoId, examenes, materiaId]);
+        return () => { ignore = true; };
+    }, [idExamen, recarga]);
 
-    const calcularNota = (puntos, ausente) => {
-        if (ausente) {
-            return {
-                porcentaje: 0,
-                calificacion: 'Sin Calificar',
-                calificacionNumero: 1,
-                estadoBadge: { label: 'Ausente', className: 'badge-danger' },
-            };
-        }
+    // ------------------------------ FILAS Y CAMBIOS -------------------------------
 
-        const pts = parseFloat(puntos) || 0;
-        const total = totalPuntos > 0 ? totalPuntos : 1;
-        const porcentaje = Math.round((pts / total) * 100);
+    // Inscriptos, más quienes tienen nota pero ya no figuran inscriptos (solo se muestran)
+    const inscriptos = new Set(alumnos.map((a) => a.idAlumno));
+    const filasBase = [
+        ...alumnos.map((a) => ({ ...a, inscripto: true })),
+        ...Object.keys(guardadas).map(Number).filter((id) => !inscriptos.has(id))
+            .map((id) => ({ idAlumno: id, nombre: `Alumno #${id}`, inscripto: false })),
+    ];
 
-        let calificacion = '1 (Insuficiente)';
-        let calificacionNumero = 1;
-
-        if (porcentaje >= 90) {
-            calificacion = '5 (Excelente)';
-            calificacionNumero = 5;
-        } else if (porcentaje >= 80) {
-            calificacion = '4 (Distinguido)';
-            calificacionNumero = 4;
-        } else if (porcentaje >= 70) {
-            calificacion = '3 (Bueno)';
-            calificacionNumero = 3;
-        } else if (porcentaje >= 60) {
-            calificacion = '2 (Aprobado)';
-            calificacionNumero = 2;
-        }
-
-        return {
-            porcentaje,
-            calificacion,
-            calificacionNumero,
-            estadoBadge: { label: 'Rendido', className: 'badge-success' },
-        };
+    const estadoDe = (idAlumno) => {
+        const guardada = guardadas[idAlumno];
+        const ed = edicion[idAlumno] ?? { puntos: '', ausente: false };
+        const original = guardada
+            ? { puntos: guardada.estadoNota === 'AUSENTE' || guardada.puntosCorrectos == null ? '' : String(guardada.puntosCorrectos), ausente: guardada.estadoNota === 'AUSENTE' }
+            : { puntos: '', ausente: false };
+        const cambio = ed.puntos !== original.puntos || ed.ausente !== original.ausente;
+        const leido = ed.ausente ? {} : leerPuntos(ed.puntos, total);
+        let errorFila = leido.error;
+        // Una nota ya cargada no se puede dejar vacía: se cambia el valor o se marca ausente
+        if (!errorFila && cambio && !ed.ausente && leido.vacio && guardada) errorFila = 'Ya tiene nota: no se puede vaciar';
+        return { ed, guardada, cambio, leido, errorFila };
     };
 
-    const handlePuntosChange = (id, valor) => {
-        setAlumnos((prev) =>
-            prev.map((a) => {
-                if (a.id === id) {
-                    const num = Math.max(0, Number(valor));
-                    const limiteAjustado = Math.min(totalPuntos, num);
-                    return { ...a, puntos: isNaN(limiteAjustado) ? 0 : limiteAjustado, ausente: false };
-                }
-                return a;
-            })
-        );
-    };
+    const filas = filasBase.map((a) => ({ ...a, ...estadoDe(a.idAlumno) }));
+    const cambios = filas.filter((f) => f.inscripto && f.cambio);
+    const conError = cambios.filter((f) => f.errorFila);
+    // Las que quedaron vacías y no tenían nota no se mandan
+    const aGuardar = cambios.filter((f) => !f.errorFila && (f.ed.ausente || !f.leido.vacio));
+    const hayCambios = cambios.length > 0;
 
-    const handleAusenteToggle = (id) => {
-        setAlumnos((prev) =>
-            prev.map((a) => {
-                if (a.id === id) {
-                    return { ...a, ausente: !a.ausente, puntos: !a.ausente ? 0 : a.puntos };
-                }
-                return a;
-            })
-        );
-    };
+    const editar = (idAlumno, cambio) =>
+        setEdicion((prev) => ({ ...prev, [idAlumno]: { ...(prev[idAlumno] ?? { puntos: '', ausente: false }), ...cambio } }));
 
-    const handleGuardar = async () => {
-        if (!examenSeleccionadoId) {
-            alert('Por favor selecciona un examen para calificar.');
+    // Pide confirmación antes de perder cambios sin guardar
+    const conConfirmacion = (accion) => (hayCambios ? setSalida(() => accion) : accion());
+
+    // Cerrar o recargar la pestaña con cambios sin guardar: lo avisa el navegador
+    useEffect(() => {
+        if (!hayCambios) return;
+        const avisar = (e) => { e.preventDefault(); e.returnValue = ''; };
+        window.addEventListener('beforeunload', avisar);
+        return () => window.removeEventListener('beforeunload', avisar);
+    }, [hayCambios]);
+
+    const guardar = async () => {
+        if (conError.length > 0) {
+            toast.warning('Corregí los puntos marcados en rojo antes de guardar.');
             return;
         }
-
+        if (aGuardar.length === 0) return;
         setGuardando(true);
-        setError(null);
-        setMensajeExito(null);
-
         try {
-            const promesas = alumnos.map(async (alumno) => {
-                const { porcentaje, calificacionNumero } = calcularNota(alumno.puntos, alumno.ausente);
-
-                let estado = "APROBADO";
-                if (alumno.ausente) {
-                    estado = "AUSENTE";
-                } else if (porcentaje < 60) {
-                    estado = "REPROBADO";
-                }
-
-                const dto = {
-                    idExamen: Number(examenSeleccionadoId),
-                    idAlumno: Number(alumno.idAlumno || alumno.id),
-                    puntosCorrectos: alumno.ausente ? 0 : Number(alumno.puntos),
-                    calificacion: Number(calificacionNumero),
-                    estadoNota: estado
-                };
-
-                if (alumno.notaId) {
-                    dto.idNota = Number(alumno.notaId);
-                    return api.put(`/notas/${alumno.notaId}`, dto);
-                } else {
-                    return api.post('/notas', dto);
-                }
-            });
-
-            await Promise.all(promesas);
-
-            setMensajeExito('¡Calificaciones guardadas exitosamente en el servidor!');
-            setTimeout(() => {
-                navigate(`/materias/examenes/${materiaId}/resultados/${examenSeleccionadoId}`);
-            }, 1200);
+            await cargarNotasDeExamen(idExamen, aGuardar.map((f) => ({
+                idAlumno: f.idAlumno,
+                puntosCorrectos: f.ed.ausente ? null : f.leido.valor,
+                ausente: f.ed.ausente,
+            })));
+            toast.success(`${aGuardar.length === 1 ? 'Nota guardada' : `${aGuardar.length} notas guardadas`} correctamente.`);
+            setRecarga((r) => r + 1);
         } catch (err) {
-            console.error('Error detallado al guardar notas:', err.response?.data || err);
-            const backendMsg = err.response?.data?.mensaje || err.response?.data?.message || JSON.stringify(err.response?.data) || err.message;
-            setError(`Error al guardar: ${backendMsg}`);
+            console.error('Error al guardar las notas:', err);
+            toast.error(mensajeDeError(err, 'No se pudieron guardar las notas. No se guardó ninguna.'));
         } finally {
             setGuardando(false);
         }
     };
 
-    const alumnosFiltrados = alumnos.filter(
-        (a) =>
-            (a.nombre && a.nombre.toLowerCase().includes(busqueda.toLowerCase())) ||
-            (a.matId && String(a.matId).toLowerCase().includes(busqueda.toLowerCase()))
+    // ---------------------------------- TABLA -----------------------------------
+
+    const texto = busqueda.trim().toLowerCase();
+    const visibles = filas.filter((f) => `${f.nombre ?? ''} ${f.email ?? ''}`.toLowerCase().includes(texto));
+
+    const celdaCalificacion = (f) => {
+        if (f.ed.ausente) return <span className="badge badge-orange">AUSENTE</span>;
+        if (f.leido.error || f.leido.vacio) return <span className="text-gray-400">Sin nota</span>;
+        const { calificacion, estado } = calificar(f.leido.valor, total);
+        return (
+            <span className="inline-flex items-center gap-2">
+                <b className="text-slate-800">{calificacion}</b>
+                <span className={estado === 'APROBADO' ? 'badge badge-success' : 'badge badge-danger'}>{estado}</span>
+            </span>
+        );
+    };
+
+    // Sin las notas guardadas no se sabe qué tiene cada uno: no se muestra nada para no sobrescribir sin querer
+    const datosTabla = errorNotas ? [] : visibles.map((f) => [
+        <span className="flex flex-col items-start text-left">
+            <span className="font-semibold text-slate-800">{f.nombre || `Alumno #${f.idAlumno}`}</span>
+            {!f.inscripto && <span className="text-xs text-gray-500">Ya no está inscripto: no se puede editar</span>}
+            {f.cambio && f.inscripto && <span className="text-xs text-(--btnColor-primary) font-semibold">Sin guardar</span>}
+        </span>,
+        <span className="inline-flex flex-col items-center gap-1">
+            <input
+                type="number"
+                min="0"
+                max={total}
+                step="1"
+                inputMode="numeric"
+                aria-label={`Puntos de ${f.nombre}`}
+                value={f.ed.ausente ? '' : f.ed.puntos}
+                disabled={f.ed.ausente || !f.inscripto || guardando}
+                onChange={(e) => editar(f.idAlumno, { puntos: e.target.value })}
+                className={`${INPUT_PUNTOS} ${f.errorFila ? 'border-rose-500' : 'border-(--borderColor-input)'}`}
+            />
+            {f.errorFila && <span className="text-[11px] text-rose-600">{f.errorFila}</span>}
+        </span>,
+        <input
+            type="checkbox"
+            aria-label={`${f.nombre} ausente`}
+            checked={f.ed.ausente}
+            disabled={!f.inscripto || guardando}
+            onChange={(e) => editar(f.idAlumno, { ausente: e.target.checked })}
+            className="w-4 h-4 accent-(--btnColor-primary) cursor-pointer"
+        />,
+        celdaCalificacion(f),
+    ]);
+
+    // -------------------------------- PANTALLA ---------------------------------
+
+    const volverAMateria = () => navigate(`/materias/${materiaId}`);
+    const nombreMateria = materia?.nombreMateria || `Materia #${materiaId}`;
+
+    const volver = (
+        <button
+            type="button"
+            onClick={() => conConfirmacion(volverAMateria)}
+            className="flex items-center text-sm font-bold text-(--btnColor-primary) hover:underline w-fit mt-[24px] cursor-pointer"
+        >
+            <i className="icon-[heroicons--arrow-left] mr-1"></i> Volver a {nombreMateria}
+        </button>
     );
 
-    const opcionesExamenes = examenes.map((ex) => ({
-        label: ex.nombre || ex.titulo || ex.descripcion || ex.nombreExamen || `Examen #${ex.id || ex.idExamen}`,
-        value: String(ex.id || ex.idExamen)
-    }));
+    if (noEncontrada || (!loading && !error && idExamenUrl && !examen)) {
+        const futuro = examenUrl && momentoDe(examenUrl) > ahora;
+        return (
+            <div className="container-page">
+                {volver}
+                <div className="card items-center text-center py-10 gap-2">
+                    <i className="icon-[heroicons--clipboard-document-check] text-4xl text-gray-300"></i>
+                    <h3>{noEncontrada ? 'Materia no encontrada' : futuro ? 'El examen todavía no se tomó' : 'Examen no encontrado'}</h3>
+                    <p className="text-sm text-gray-500">
+                        {noEncontrada ? 'No existe o no es una de las materias que dictás.'
+                            : futuro ? `Se puede calificar a partir del ${formatearFecha(examenUrl.fecha)} a las ${formatearHora(examenUrl.hora)}.`
+                                : 'No existe o no es de esta materia.'}
+                    </p>
+                </div>
+            </div>
+        );
+    }
 
-    const nombreMateria = materia?.nombre || materia?.nombreMateria || `Materia #${materiaId}`;
+    const conNota = filas.filter((f) => f.inscripto && !f.ed.ausente && f.leido.valor !== undefined).length;
+    const ausentes = filas.filter((f) => f.inscripto && f.ed.ausente).length;
+    const tarjetas = [
+        { titulo: 'Alumnos', valor: alumnos.length, icono: 'icon-[heroicons--users]', nota: 'Inscriptos en la materia' },
+        { titulo: 'Con nota', valor: conNota, icono: 'icon-[heroicons--check-circle]', nota: 'Incluye cambios sin guardar' },
+        { titulo: 'Ausentes', valor: ausentes, icono: 'icon-[heroicons--user-minus]', nota: 'No se presentaron' },
+        { titulo: 'Sin nota', valor: Math.max(0, alumnos.length - conNota - ausentes), icono: 'icon-[heroicons--clock]', nota: 'Falta calificar' },
+    ];
 
     return (
         <div className="container-page">
-            <button
-                onClick={() => navigate(`/materias/examenes/${materiaId}`)}
-                className="flex items-center text-sm font-bold text-(--btnColor-primary) hover:underline mb-1 cursor-pointer w-fit"
-            >
-                <i className="icon-[heroicons--arrow-left] mr-1"></i> Volver a Exámenes
-            </button>
-
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
-                <div>
-                    <span className="text-xs text-gray-400 font-medium uppercase tracking-wider">Calificación de Evaluaciones</span>
-                    <h1>
-                        Exámenes / <span className="text-gray-500">{nombreMateria}</span>
-                    </h1>
+            {volver}
+            <div className="flex flex-row flex-wrap justify-between items-end gap-4">
+                <div className="flex flex-col min-w-0">
+                    <h1 className="truncate">{examen ? `Calificar: ${examen.titulo}` : 'Calificar examen'}</h1>
+                    <h2>
+                        {examen
+                            ? `${nombreMateria} · ${formatearFecha(examen.fecha)} ${formatearHora(examen.hora)} · ${total} puntos`
+                            : nombreMateria}
+                    </h2>
                 </div>
-            </div>
-
-            {mensajeExito && (
-                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 flex items-center gap-3">
-                    <i className="icon-[heroicons--check-circle] text-2xl text-emerald-600"></i>
-                    <p className="text-sm font-semibold">{mensajeExito}</p>
-                </div>
-            )}
-
-            {error && (
-                <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 flex items-center gap-3">
-                    <i className="icon-[heroicons--exclamation-triangle] text-2xl text-red-600"></i>
-                    <div>
-                        <p className="text-sm font-bold">Ocurrió un error</p>
-                        <p className="text-xs text-red-600 break-all">{error}</p>
-                    </div>
-                </div>
-            )}
-
-            <div className="card !p-5">
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 divide-y sm:divide-y-0 sm:divide-x divide-gray-200">
-                    <div className="flex items-center gap-3">
-                        <div className="p-3 bg-teal-50 text-(--btnColor-primary) rounded-xl shrink-0">
-                            <i className="icon-[heroicons--clipboard-document-check] text-2xl"></i>
-                        </div>
-                        <div className="w-full">
-                            <p className="text-[11px] font-bold tracking-wider text-gray-400 uppercase mb-1">EXAMEN A CALIFICAR</p>
-                            {opcionesExamenes.length > 0 ? (
-                                <Combobox
-                                    options={opcionesExamenes}
-                                    value={examenSeleccionadoId}
-                                    onChange={handleSeleccionarExamen}
-                                    placeholder="Selecciona examen..."
-                                    className="w-full min-w-[150px]"
-                                />
-                            ) : (
-                                <p className="text-sm text-gray-500 italic">No hay exámenes disponibles</p>
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="flex items-center gap-3 sm:pl-6 pt-4 sm:pt-0">
-                        <div className="p-3 bg-teal-50 text-(--btnColor-primary) rounded-xl shrink-0">
-                            <i className="icon-[heroicons--star] text-2xl"></i>
-                        </div>
-                        <div>
-                            <p className="text-[11px] font-bold tracking-wider text-gray-400 uppercase mb-1">TOTAL PUNTOS EXAMEN</p>
-                            <div className="flex items-center gap-2">
-                                <input
-                                    type="number"
-                                    min="1"
-                                    value={totalPuntos}
-                                    onChange={(e) => setTotalPuntos(Number(e.target.value) || 1)}
-                                    className="w-20 px-2 py-1 text-sm font-bold text-slate-800 border border-(--borderColor-input) rounded-md bg-white focus:border-(--btnColor-primary) outline-none"
-                                />
-                                <span className="text-xs text-gray-500">pts</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="flex items-center gap-3 sm:pl-6 pt-4 sm:pt-0">
-                        <div className="p-3 bg-teal-50 text-(--btnColor-primary) rounded-xl shrink-0">
-                            <i className="icon-[heroicons--users] text-2xl"></i>
-                        </div>
-                        <div>
-                            <p className="text-[11px] font-bold tracking-wider text-gray-400 uppercase">ALUMNOS A EVALUAR</p>
-                            <p className="font-bold text-slate-800 text-sm mt-1">{alumnos.length} Registrados</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div className="card">
-                <div className="flex flex-col md:flex-row justify-between items-center pb-4 border-b border-gray-200 gap-4">
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
-                        <i className="icon-[heroicons--clipboard-document-list] text-lg text-(--btnColor-primary)"></i>
-                        CARGA DE CALIFICACIONES POR ALUMNO
-                    </h3>
-                    <SearchInput
-                        value={busqueda}
-                        onChange={(e) => setBusqueda(e.target.value)}
-                        placeholder="Buscar por nombre..."
-                        variant="default"
-                    />
-                </div>
-
-                {loading ? (
-                    <div className="flex flex-col items-center justify-center p-12">
-                        <div className="w-10 h-10 border-4 border-(--btnColor-primary) border-t-transparent rounded-full animate-spin"></div>
-                        <p className="text-sm text-gray-500 mt-4 font-medium">Cargando notas de alumnos...</p>
-                    </div>
-                ) : alumnosFiltrados.length === 0 ? (
-                    <div className="text-center py-10">
-                        <i className="icon-[heroicons--user-group] text-4xl text-gray-300 mb-2"></i>
-                        <p className="text-sm text-gray-500 font-medium">No se encontraron alumnos para este examen.</p>
-                        <p className="text-xs text-gray-400 mt-1">Asegúrate de que existan alumnos inscritos en esta materia.</p>
-                    </div>
-                ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm border-separate border-spacing-0">
-                            <thead>
-                                <tr className="bg-(--bgColor-main) text-gray-500 text-xs uppercase tracking-wider">
-                                    <th className="py-3 px-4 text-left">ALUMNO</th>
-                                    <th className="py-3 px-4 text-center">PUNTOS OBTENIDOS</th>
-                                    <th className="py-3 px-4 text-center">TOTAL</th>
-                                    <th className="py-3 px-4 text-center">PORCENTAJE</th>
-                                    <th className="py-3 px-4 text-center">CALIFICACIÓN</th>
-                                    <th className="py-3 px-4 text-center">ESTADO</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {alumnosFiltrados.map((alumno) => {
-                                    const { porcentaje, calificacion, estadoBadge } = calcularNota(
-                                        alumno.puntos,
-                                        alumno.ausente
-                                    );
-                                    return (
-                                        <tr
-                                            key={alumno.id}
-                                            className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
-                                        >
-                                            <td className="py-3 px-4 text-left">
-                                                <div className="flex items-center gap-3">
-                                                    <div className="w-9 h-9 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-xs uppercase shrink-0">
-                                                        {alumno.nombre
-                                                            .split(' ')
-                                                            .map((n) => n[0])
-                                                            .slice(0, 2)
-                                                            .join('')}
-                                                    </div>
-                                                    <div>
-                                                        <p className="font-bold text-slate-800 text-sm">{alumno.nombre}</p>
-                                                        <p className="text-xs text-gray-400">{alumno.matId}</p>
-                                                    </div>
-                                                </div>
-                                            </td>
-
-                                            <td className="py-3 px-4 text-center">
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    max={totalPuntos}
-                                                    value={alumno.ausente ? '' : alumno.puntos}
-                                                    disabled={alumno.ausente}
-                                                    onChange={(e) => handlePuntosChange(alumno.id, e.target.value)}
-                                                    className="w-20 text-center px-2 py-1.5 rounded-lg border border-(--borderColor-input) bg-white font-bold text-slate-800 focus:border-(--btnColor-primary) outline-none disabled:bg-gray-100 disabled:text-gray-400"
-                                                />
-                                            </td>
-
-                                            <td className="py-3 px-4 text-center text-gray-400 font-medium">
-                                                / {totalPuntos}
-                                            </td>
-
-                                            <td className="py-3 px-4 text-center font-bold">
-                                                <span
-                                                    className={`px-2 py-1 rounded-md text-xs font-bold ${alumno.ausente
-                                                            ? 'text-red-500 bg-red-50'
-                                                            : porcentaje >= 60
-                                                                ? 'text-emerald-600 bg-emerald-50'
-                                                                : 'text-red-600 bg-red-50'
-                                                        }`}
-                                                >
-                                                    {alumno.ausente ? '0%' : `${porcentaje}%`}
-                                                </span>
-                                            </td>
-
-                                            <td className="py-3 px-4 text-center font-semibold text-slate-700">
-                                                {calificacion}
-                                            </td>
-
-                                            <td className="py-3 px-4 text-center">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleAusenteToggle(alumno.id)}
-                                                    title="Clic para cambiar entre Presente / Ausente"
-                                                    className={`badge ${estadoBadge.className} !text-xs py-1 cursor-pointer hover:opacity-80 transition-opacity`}
-                                                >
-                                                    ● {estadoBadge.label}
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
+                {tomados.length > 1 && (
+                    <select
+                        value={idExamen ?? ''}
+                        onChange={(e) => {
+                            const id = e.target.value;
+                            conConfirmacion(() => { setEdicion({}); setGuardadas({}); setSearchParams({ idExamen: id }); });
+                        }}
+                        aria-label="Examen a calificar"
+                        className="px-3 py-2.5 rounded-xl border border-(--borderColor-input) bg-white text-sm text-gray-700 focus:outline-none focus:border-(--btnColor-primary) shadow-sm max-w-xs"
+                    >
+                        {tomados.map((e) => (
+                            <option key={e.idExamen} value={e.idExamen}>{e.titulo} · {formatearFecha(e.fecha)}</option>
+                        ))}
+                    </select>
                 )}
-
-                <div className="flex justify-end items-center gap-3 pt-4 border-t border-gray-200">
-                    <button
-                        type="button"
-                        onClick={() => navigate(-1)}
-                        className="px-5 py-2 text-sm font-bold text-gray-600 hover:text-black border border-(--borderColor-input) rounded-xl bg-white hover:bg-gray-50 transition-colors cursor-pointer"
-                    >
-                        Cancelar
-                    </button>
-                    <button
-                        type="button"
-                        disabled={guardando || alumnos.length === 0}
-                        onClick={handleGuardar}
-                        className="btn-primary !px-6 disabled:opacity-50"
-                    >
-                        {guardando ? (
-                            <>
-                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                                Guardando...
-                            </>
-                        ) : (
-                            <>
-                                <i className="icon-[heroicons--check] mr-2 text-lg"></i>
-                                Guardar Calificaciones
-                            </>
-                        )}
-                    </button>
-                </div>
             </div>
+
+            {!loading && !error && !examen ? (
+                <div className="card items-center text-center py-10 gap-2">
+                    <i className="icon-[heroicons--clipboard-document-check] text-4xl text-gray-300"></i>
+                    <h3>No hay exámenes para calificar</h3>
+                    <p className="text-sm text-gray-500">Los exámenes se califican después de su fecha y hora.</p>
+                </div>
+            ) : (
+                <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                        {tarjetas.map((t) => <TarjetaResumen key={t.titulo} loading={loading || cargandoNotas} {...t} />)}
+                    </div>
+
+                    <div className="flex flex-row flex-wrap justify-between items-center gap-4">
+                        <SearchInput placeholder="Buscar alumno" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
+                        <div className="flex flex-row items-center gap-3">
+                            <button
+                                type="button"
+                                onClick={() => conConfirmacion(() => navigate(`/materias/examenes/${materiaId}/resultados/${idExamen}`))}
+                                disabled={!idExamen}
+                                className="px-4 py-2.5 rounded-xl border border-(--borderColor-input) bg-white text-sm font-semibold text-slate-700 hover:bg-gray-50 cursor-pointer disabled:opacity-50"
+                            >
+                                Ver resultados
+                            </button>
+                            <button
+                                type="button"
+                                onClick={guardar}
+                                disabled={guardando || Boolean(errorNotas) || (aGuardar.length === 0 && conError.length === 0)}
+                                className="btn-primary cursor-pointer flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {guardando ? <Spinner className="h-4 w-4 text-white" /> : <i className="icon-[heroicons--check] text-white"></i>}
+                                Guardar cambios{aGuardar.length > 0 ? ` (${aGuardar.length})` : ''}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* En pantallas angostas la tabla se desplaza dentro de su recuadro, no toda la página */}
+                    <div className="overflow-x-auto rounded-md [&>table]:w-full">
+                        <Table
+                            headers={['Alumno', `Puntos (de ${total || SIN_DATO})`, 'Ausente', 'Calificación']}
+                            data={datosTabla}
+                            loading={loading || cargandoNotas}
+                            emptyMessage={error || errorNotas || (filas.length === 0 ? 'No hay alumnos inscriptos en la materia' : 'No se encontraron alumnos')}
+                            showPagination={false}
+                        />
+                    </div>
+                </>
+            )}
+
+            <ConfirmModal
+                isOpen={Boolean(salida)}
+                onClose={() => setSalida(null)}
+                onConfirm={() => { const accion = salida; setSalida(null); accion(); }}
+                title="Cambios sin guardar"
+                message={<>Tenés <b>{cambios.length}</b> {cambios.length === 1 ? 'nota modificada' : 'notas modificadas'} sin guardar.</>}
+                warning="Si continuás, se pierden los cambios."
+                confirmText="Descartar cambios"
+                cancelText="Seguir editando"
+            />
         </div>
     );
 };
