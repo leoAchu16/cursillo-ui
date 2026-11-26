@@ -57,6 +57,25 @@ export const armarUsuarioRequest = (usuarioActual, { nombre, email, telefono }) 
   rolesAdicionales: (usuarioActual.roles || []).filter((r) => r !== usuarioActual.rol),
 });
 
+// ---------- Perfil del usuario logueado (cualquier rol) ----------
+
+// GET /usuarios/me: los datos del usuario del token
+export const obtenerPerfil = async () => {
+  const { data } = await api.get('/usuarios/me');
+  return data;
+};
+
+// PUT /usuarios/me: solo nombre y teléfono. El email y el rol no se pueden cambiar.
+export const actualizarPerfil = async ({ nombre, telefono }) => {
+  const { data } = await api.put('/usuarios/me', { nombre: nombre.trim(), telefono: telefono.trim() });
+  return data;
+};
+
+// PUT /usuarios/me/contrasenha: el backend exige la contraseña actual
+export const cambiarContrasenha = async ({ contrasenhaActual, contrasenhaNueva }) => {
+  await api.put('/usuarios/me/contrasenha', { contrasenhaActual, contrasenhaNueva });
+};
+
 export default {
   listarAlumnos,
   listarAlumnosPaginado,
